@@ -1,15 +1,14 @@
 import { isMastered, type Progress } from './progress';
 
-export const ROUND_LENGTH = 10;
-export const MAX_POINTS = 1000;
-// Name it: points for the 1st, 2nd and 3rd typed guess; after that the answer is shown.
-export const NAME_POINTS = [1000, 500, 250];
+// A quick round; a full round plays every country in the area.
+export const QUICK_ROUND = 10;
+// Points for a correct answer on the 1st, 2nd and 3rd attempt. After the 3rd miss the answer is shown for 0 points.
+export const ATTEMPT_POINTS = [100, 60, 30];
+export const MAX_POINTS = ATTEMPT_POINTS[0];
 
-// Find it: one click. Exact = 1000; a miss scores by distance from the clicked country to the answer.
-export const findPoints = (correct: boolean, km: number) => (correct ? MAX_POINTS : Math.round(800 * Math.exp(-km / 1000)));
-
-// Picks the round's questions, three times as likely to pick a country you have not mastered yet.
-export function pickRound(ids: string[], progress: Progress, n = ROUND_LENGTH): string[] {
+// Picks the round's questions in order, three times as likely to pick a country you have not mastered yet,
+// so in a full round the countries you still need come up earlier.
+export function pickRound(ids: string[], progress: Progress, n = ids.length): string[] {
   const pool = ids.map(id => ({ id, w: isMastered(progress, id) ? 1 : 3 }));
   const out: string[] = [];
   while (out.length < n && pool.length) {

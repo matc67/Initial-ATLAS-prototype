@@ -21,6 +21,14 @@ export function saveProgress(p: Progress) {
 
 export const isMastered = (p: Progress, id: string) => (p[id]?.firstTry ?? 0) >= MASTERY_FIRST_TRIES;
 
+// Progress map levels: mastered (2+ first-try answers), learned (1), practicing (played but never first try), or not started.
+export type Level = 'mastered' | 'learned' | 'practicing';
+export function levelOf(p: Progress, id: string): Level | null {
+  const r = p[id];
+  if (!r?.attempts) return null;
+  return r.firstTry >= MASTERY_FIRST_TRIES ? 'mastered' : r.firstTry >= 1 ? 'learned' : 'practicing';
+}
+
 export function record(p: Progress, id: string, firstTry: boolean): Progress {
   const r = p[id] ?? { attempts: 0, firstTry: 0, lastSeen: '' };
   return { ...p, [id]: { attempts: r.attempts + 1, firstTry: r.firstTry + (firstTry ? 1 : 0), lastSeen: new Date().toISOString() } };
