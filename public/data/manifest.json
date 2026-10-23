@@ -1,0 +1,18 @@
+{
+  "builtAt": "2026-10-23T03:45:57.292Z",
+  "sources": [
+    {
+      "id": "natural-earth",
+      "name": "Natural Earth Admin 0 Countries 1:50m",
+      "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_50m_admin_0_countries.geojson",
+      "commit": "ca96624a56bd078437bca8184e78163e5039ad19",
+      "licence": "Public domain"
+    }
+  ],
+  "counts": {
+    "shapes": 240,
+    "playable": 195,
+    "halos": 19,
+    "markers": 29
+  }
+}
