@@ -122,6 +122,24 @@ for (const [from, to] of Object.entries(MERGE_INTO)) {
   byId.delete(from);
 }
 
+// Natural Earth draws Western Sahara as it is controlled today: the Moroccan-administered west (about 176,000 km², the
+// whole coast) is inside Morocco and W. Sahara is only the strip east of the berm. ATLAS plays the territory as the UN
+// lists it, the same way it plays Cyprus and Somalia whole: everything of Morocco's shape south of 27°40′N, the
+// internationally recognised boundary, is Western Sahara.
+const WS_NORTH = 27 + 40 / 60;
+{
+  const mar = byId.get('MAR')!, sah = byId.get('SAH')!;
+  const south = turf.bboxPolygon([-20, 20, -8, WS_NORTH]);
+  const part = turf.intersect(turf.featureCollection([mar, south])) as Shape | null;
+  if (!part) throw new Error('No part of Morocco south of 27°40′N: check the Western Sahara step');
+  const morocco = turf.difference(turf.featureCollection([mar, south])) as Shape;
+  morocco.properties = mar.properties;
+  const whole = turf.union(turf.featureCollection([sah, part])) as Shape;
+  whole.properties = sah.properties;
+  byId.set('MAR', morocco);
+  byId.set('SAH', whole);
+}
+
 for (const id of OVERSEAS_SPLIT) {
   const f = byId.get(id)!;
   const parts = turf.flatten(f).features;

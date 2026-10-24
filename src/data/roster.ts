@@ -9,7 +9,8 @@
 
 export type Continent = 'Africa' | 'Asia' | 'Europe' | 'North America' | 'South America' | 'Oceania';
 export type RosterStatus = 'un-member' | 'un-observer' | 'partially-recognised' | 'disputed' | 'territory';
-// `iso2` is empty when ATLAS shows no flag (Western Sahara: its usual flag is the Sahrawi Republic's, one side of the dispute).
+// Every country shows a flag. Western Sahara (EH) uses the flag of the Sahrawi Republic, the one in common use for it;
+// its `note` says the territory is disputed.
 // `note` explains the status in Explore for every country that is not a UN member state.
 export type RosterEntry = { id: string; iso2: string; name: string; aliases: string[]; continent: Continent; status: RosterStatus; note?: string };
 
@@ -217,7 +218,7 @@ export const ROSTER: RosterEntry[] = [
     note: 'Declared independence from Serbia in 2008. Recognised by many UN member states but not by Serbia and others; not a UN member.' },
   { id: 'TWN', iso2: 'TW', name: 'Taiwan', aliases: ['Republic of China'], continent: 'Asia', status: 'partially-recognised',
     note: 'Self-governing since 1949 as the Republic of China, and claimed by the People’s Republic of China. Recognised by only a few UN member states; not a UN member.' },
-  { id: 'SAH', iso2: '', name: 'Western Sahara', aliases: [], continent: 'Africa', status: 'disputed',
+  { id: 'SAH', iso2: 'EH', name: 'Western Sahara', aliases: [], continent: 'Africa', status: 'disputed',
     note: 'Listed by the UN as a non-self-governing territory. Most of it is administered by Morocco, which claims it; the Sahrawi Arab Democratic Republic also claims it.' },
   { id: 'GRL', iso2: 'GL', name: 'Greenland', aliases: ['Kalaallit Nunaat'], continent: 'North America', status: 'territory',
     note: 'A self-governing territory within the Kingdom of Denmark.' },

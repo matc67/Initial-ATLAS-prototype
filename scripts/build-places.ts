@@ -52,8 +52,12 @@ if (!existsSync(RAW)) {
 }
 const places = (JSON.parse(readFileSync(RAW, 'utf8')).features as { properties: Place }[]).map(f => f.properties);
 const byCountry = new Map<string, Place[]>();
+// Places Natural Earth files under Morocco but south of 27°40′N are in Western Sahara, as ATLAS draws it
+// (see build-countries.ts): Laayoune, Dakhla, Smara.
+const WS_NORTH = 27 + 40 / 60;
+const countryOf = (p: Place) => (p.adm0_a3 === 'MAR' && p.latitude < WS_NORTH ? 'SAH' : CODE_ALIAS[p.adm0_a3] ?? p.adm0_a3);
 for (const p of places) {
-  const id = CODE_ALIAS[p.adm0_a3] ?? p.adm0_a3;
+  const id = countryOf(p);
   byCountry.set(id, [...(byCountry.get(id) ?? []), p]);
 }
 

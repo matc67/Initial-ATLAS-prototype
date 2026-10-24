@@ -5,10 +5,10 @@ import { flagUrl } from './flags.ts';
 import { ROSTER, isClassic } from './roster.ts';
 
 const file = (dir: string, iso2: string) => new URL(`../../${dir}/${iso2.toLowerCase()}.svg`, import.meta.url);
-// Countries that deliberately show no flag, and why. Anything else without a flag is a bug.
-const NO_FLAG: { [id: string]: string } = { SAH: 'its usual flag is the Sahrawi Republic’s, one side of the dispute' };
+// Countries that deliberately show no flag, and why. Anything else without a flag is a bug. Currently none.
+const NO_FLAG: { [id: string]: string } = {};
 
-test('every country in both sets has a flag code, except the deliberate exceptions', () => {
+test('every country in both sets has a flag code, except any deliberate exceptions', () => {
   for (const set of ['195', '200'] as const) {
     for (const r of ROSTER.filter(r => set === '200' || isClassic(r))) {
       if (NO_FLAG[r.id]) { assert.equal(r.iso2, '', `${r.id} should show no flag`); continue; }
@@ -41,4 +41,15 @@ test('flag URLs are lower-case and follow the base path in development and produ
   if (existsSync(new URL('../../dist/index.html', import.meta.url))) {
     for (const r of ROSTER.filter(r => r.iso2)) assert.ok(existsSync(file('dist/flags', r.iso2)), `dist is missing ${r.iso2}.svg`);
   }
+});
+
+test('every flag is the right country: its code names that country in flag-icons’ own list', () => {
+  const list = JSON.parse(readFileSync(new URL('../../node_modules/flag-icons/country.json', import.meta.url), 'utf8')) as { code: string; name: string }[];
+  const byCode = new Map(list.map(c => [c.code.toUpperCase(), c.name]));
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+  const wrong = ROSTER.filter(r => r.iso2).filter(r => {
+    const flagName = byCode.get(r.iso2);
+    return !flagName || ![r.name, ...r.aliases].some(n => norm(n) === norm(flagName));
+  }).map(r => `${r.name} → ${r.iso2} (${byCode.get(r.iso2) ?? 'unknown code'})`);
+  assert.deepEqual(wrong, []);
 });

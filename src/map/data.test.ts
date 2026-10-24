@@ -101,3 +101,15 @@ test('no coastline goes past the Web Mercator limit; Antarctica reaches the pole
   // The pole edge keeps its points (about every 0.5°) so no single edge spans the world.
   assert.ok(pole.slice(1).every((x, i) => x - pole[i] <= 1), 'gap in the pole edge');
 });
+
+test('Western Sahara is the whole territory (south of 27°40′N), not only the strip east of the berm', () => {
+  const sah = byId.get('SAH')!, mar = byId.get('MAR')!;
+  // Laayoune, Dakhla, and the middle of the territory.
+  for (const p of [[-13.2, 27.15], [-15.95, 23.7], [-13, 24.5]]) {
+    assert.ok(turf.booleanPointInPolygon(p, sah), `${p} should be Western Sahara`);
+    assert.equal(turf.booleanPointInPolygon(p, mar), false, `${p} should not be Morocco`);
+  }
+  assert.ok(turf.bbox(mar)[1] >= 27 + 40 / 60 - 1e-3, 'Morocco reaches south of 27°40′N');
+  const km2 = turf.area(sah) / 1e6;
+  assert.ok(km2 > 250_000 && km2 < 285_000, `Western Sahara is ${Math.round(km2)} km²`);
+});

@@ -339,10 +339,11 @@ export default function App() {
     globeRef.current?.setCities(cities.slice(0, 6).map(c => ({ id: c.id, name: c.name, at: lngLat(c), capital: !!c.capital })));
   }, [view, selectedPlaces]);
 
-  // Names on hover outside rounds. In a round only countries already guessed correctly are named: any other label would
-  // give an answer away (Show me answers stay unnamed too, since they were not guessed).
-  const guessedRight = view === 'play' && !!hoverId && !!round?.answers.some(a => a.id === hoverId && !a.hint);
-  const hoverCountry = hoverId && (view !== 'play' || guessedRight) ? countries.get(hoverId) : undefined;
+  // Names and flags on hover everywhere except during a round (the Play start screen and results included). In a round
+  // only countries already guessed correctly are named: any other label would give an answer away (Show me answers stay
+  // unnamed too, since they were not guessed).
+  const guessedRight = inRound && !!hoverId && !!round?.answers.some(a => a.id === hoverId && !a.hint);
+  const hoverCountry = hoverId && (!inRound || guessedRight) ? countries.get(hoverId) : undefined;
   const selectedCountry = selected ? countries.get(selected) : undefined;
   const loading = !countries.size && !error;
   const legend = useMemo(() => {
