@@ -1,5 +1,5 @@
 import type { LngLat } from '../game/geo';
-import { CONTINENTS, ROSTER, isClassic, type Continent, type RosterEntry } from './roster';
+import { CONTINENTS, ROSTER, isClassic, type Continent, type RosterEntry } from './roster.ts';
 
 // `region` is the UN geoscheme subregion carried in countries.topo.json (e.g. "Caribbean", "Western Africa").
 export type Country = RosterEntry & { center: LngLat; region: string };
@@ -34,7 +34,7 @@ export const STATUS_LABEL: { [S in RosterEntry['status']]: string } = {
 // The two ways to play: ATLAS — 200 Countries (the default) or the Classic 195 (UN member and observer states).
 export type CountrySet = '200' | '195';
 export const SET_LABEL: { [S in CountrySet]: string } = { '200': 'ATLAS — 200 Countries', '195': 'Classic — 195 Countries' };
-export const inSet = (c: Country, set: CountrySet) => set === '200' || isClassic(c);
+export const inSet = (c: RosterEntry, set: CountrySet) => set === '200' || isClassic(c);
 
 // Joins the curated roster with the label point and region each shape carries in countries.topo.json.
 export function indexCountries(shapes: GeoJSON.FeatureCollection): Map<string, Country> {
@@ -45,6 +45,6 @@ export function indexCountries(shapes: GeoJSON.FeatureCollection): Map<string, C
   }));
 }
 
-export const inArea = (c: Country, area: Area) =>
+export const inArea = (c: Pick<RosterEntry, 'continent'>, area: Area) =>
   area === 'World' || c.continent === area || (area === 'Americas' && (c.continent === 'North America' || c.continent === 'South America'));
 export { CONTINENTS };
