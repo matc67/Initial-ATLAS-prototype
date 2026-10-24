@@ -15,6 +15,8 @@ export type Pick = { kind: 'country'; id: string } | { kind: 'ambiguous'; ids: s
 
 // Two rings whose distances from the click differ by less than this are too close to call.
 export const AMBIGUOUS_PX = 3;
+// Over another country's land, a click counts for a ring only within this share of its radius.
+export const RING_CORE = 0.5;
 
 function nearest(markers: PickInput['markers'], within: number): Pick | null {
   const near = markers.filter(m => m.px <= within).sort((a, b) => a.px - b.px || (a.id < b.id ? -1 : 1));
@@ -28,7 +30,13 @@ function nearest(markers: PickInput['markers'], within: number): Pick | null {
 export function resolvePick(p: PickInput): Pick {
   // Clicking a small country's actual land always means that country, even beside a neighbour's ring.
   if (p.land && p.landIsSmall) return { kind: 'country', id: p.land };
-  return nearest(p.markers, p.ringRadius)
+  // Over another country's land, only the centre of a ring counts for the ring (Vatican City over Italy). Nearer its edge
+  // the click could mean either: Qatar is a few pixels wide at world zoom and sits under Bahrain's ring. Too close to call.
+  const ring = nearest(p.markers, p.ringRadius);
+  if (p.land && ring?.kind === 'country' && p.markers.find(m => m.id === ring.id)!.px > p.ringRadius * RING_CORE) {
+    return { kind: 'ambiguous', ids: [ring.id, p.land] };
+  }
+  return ring
     ?? (p.land ? { kind: 'country', id: p.land } : null)
     ?? (p.halo ? { kind: 'country', id: p.halo } : null)
     ?? nearest(p.markers, p.reach)

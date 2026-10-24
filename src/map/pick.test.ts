@@ -14,6 +14,13 @@ test('a visible ring wins over the big country underneath it (Vatican City over 
   assert.deepEqual(pick({ land: 'ITA', markers: [{ id: 'VAT', px: 3 }] }), { kind: 'country', id: 'VAT' });
 });
 
+test('near a ring’s edge over another country’s land, the click is too close to call (Qatar under Bahrain’s ring)', () => {
+  assert.deepEqual(pick({ land: 'QAT', markers: [{ id: 'BHR', px: 4.5 }] }), { kind: 'ambiguous', ids: ['BHR', 'QAT'] });
+  // At the ring's centre it is the ring; over the sea, the whole ring counts.
+  assert.deepEqual(pick({ land: 'QAT', markers: [{ id: 'BHR', px: 2 }] }), { kind: 'country', id: 'BHR' });
+  assert.deepEqual(pick({ markers: [{ id: 'BHR', px: 5 }] }), { kind: 'country', id: 'BHR' });
+});
+
 test('outside the visible ring, a neighbour’s actual land is never taken by a ring’s reach', () => {
   assert.deepEqual(pick({ land: 'ITA', markers: [{ id: 'VAT', px: 10 }] }), { kind: 'country', id: 'ITA' });
   // Over the sea, the reach still helps.

@@ -10,13 +10,19 @@ import type { EntityType } from '../data/entities.ts';
 export type Interaction = 'map-click' | 'text-entry';
 export type GameMode = 'find' | 'name';
 
+// `full`: every target, in random order. `sprint`: SPRINT_SIZE targets drawn at random from the pool for each run.
+export type ChallengeKind = 'full' | 'sprint';
+export const SPRINT_SIZE = 10;
+
 export type GeographyChallenge = {
-  id: string;              // stable: e.g. "world-countries-find", "africa-countries-classic-name"
-  name: string;            // "World countries"
+  id: string;              // stable: e.g. "world-countries-find", "africa-sprint-classic-name"
+  name: string;            // "World countries", "Africa Sprint"
+  kind: ChallengeKind;
+  size: number;            // questions in one run
   entityType: EntityType;  // what the targets are
   scopeId: string;         // the entity the challenge covers: "world", "continent:africa"…
   interaction: Interaction;
-  targetIds: string[];     // what is asked, as map/roster ids
+  targetIds: string[];     // what is asked (full), or the pool the questions are drawn from (sprint), as map/roster ids
   // Changes whenever the target list changes (a roster edit, a new country), so records from a different list of
   // countries are never ranked against this one.
   version: string;
@@ -41,9 +47,21 @@ export const countryIds = (area: Area, set: CountrySet) => ROSTER.filter(r => in
 export function countryChallenge(area: Area, set: CountrySet, mode: GameMode, ids = countryIds(area, set)): GeographyChallenge {
   return {
     id: `${slug(area)}-countries${set === '195' ? '-classic' : ''}-${mode}`,
-    name: `${area === 'World' ? 'World' : area} countries`,
+    name: `${area === 'World' ? 'World' : area} countries`, kind: 'full', size: ids.length,
     entityType: 'country', scopeId: SCOPE[area],
     interaction: mode === 'find' ? 'map-click' : 'text-entry',
     targetIds: ids, version: versionOf(ids),
+  };
+}
+
+// A Sprint draws 10 of the area's countries at random for each run. Its records are kept apart from the full challenge's
+// (a different id), and each run's ten differ, so they are personal arcade records rather than like-for-like rankings.
+// The version follows the pool and the run size, so a roster change or a different size starts fresh records.
+export function sprintChallenge(area: Area, set: CountrySet, mode: GameMode, pool = countryIds(area, set)): GeographyChallenge {
+  return {
+    ...countryChallenge(area, set, mode, pool),
+    id: `${slug(area)}-sprint${set === '195' ? '-classic' : ''}-${mode}`,
+    name: `${area === 'World' ? 'World' : area} Sprint`, kind: 'sprint', size: SPRINT_SIZE,
+    version: `s${SPRINT_SIZE}-${versionOf(pool)}`,
   };
 }

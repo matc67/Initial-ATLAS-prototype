@@ -224,6 +224,49 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 .credits a { color: var(--ink-2); }
 .error { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 16px 20px; border-radius: 12px; background: #4a1d28; border: 1px solid #a04454; max-width: 360px; text-align: center; }
 
+/* Challenge picker: Sprint first and most prominent, Full Challenge beside it. */
+.challenges { display: grid; gap: 8px; }
+.challenge { display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--panel-line-strong); background: rgba(255, 255, 255, 0.03); color: var(--ink); transition: border-color 0.15s, background 0.15s, transform 0.15s; }
+.challenge:hover:not(:disabled) { border-color: rgba(130, 170, 230, 0.6); background: rgba(255, 255, 255, 0.06); }
+.challenge:active:not(:disabled) { transform: scale(0.99); }
+.challenge:disabled { opacity: 0.55; }
+.challenge.sprint { border-color: rgba(255, 207, 92, 0.5); background: linear-gradient(135deg, rgba(255, 207, 92, 0.14), rgba(59, 130, 246, 0.12)); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25); }
+.challenge.sprint:hover:not(:disabled) { border-color: rgba(255, 207, 92, 0.8); background: linear-gradient(135deg, rgba(255, 207, 92, 0.2), rgba(59, 130, 246, 0.16)); }
+.challenge-icon { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); color: var(--ink-2); }
+.challenge.sprint .challenge-icon { background: rgba(255, 207, 92, 0.18); color: var(--gold); }
+.challenge-body { display: grid; gap: 2px; min-width: 0; }
+.challenge-body strong { font-family: 'Space Grotesk', sans-serif; font-size: 15.5px; }
+.challenge-body span { font-size: 12.5px; color: var(--ink-2); }
+.challenge-body em { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.challenge.sprint .challenge-body em { color: #ffe19a; }
+.hud-area svg { width: 12px; height: 12px; margin-right: 3px; vertical-align: -1px; color: var(--gold); }
+
+/* Sprint results. */
+.sprint-results { display: grid; gap: var(--gap); }
+.sprint-results .eyebrow svg { width: 13px; height: 13px; vertical-align: -2px; color: var(--gold); }
+.sprint-score { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; padding: 6px 2px 2px; }
+.sprint-score strong { font-family: 'Space Grotesk', sans-serif; font-size: 52px; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.sprint-score small { font-size: 15px; color: var(--ink-3); }
+.sprint-score .delta { flex-basis: 100%; font-size: 12.5px; color: var(--ink-3); }
+.sprint-score .delta.up { color: var(--gold); font-weight: 700; }
+.sprint-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sprint-stats div { display: grid; gap: 1px; padding: 9px 11px; border-radius: 12px; border: 1px solid var(--panel-line); background: rgba(255, 255, 255, 0.03); }
+.sprint-stats span { font-size: 11px; color: var(--ink-3); }
+.sprint-stats strong { font-family: 'Space Grotesk', sans-serif; font-size: 21px; font-variant-numeric: tabular-nums; }
+.sprint-stats small { font-size: 11px; color: var(--ink-3); }
+.sprint-stats .better { border-color: rgba(255, 207, 92, 0.5); }
+.sprint-stats .better small { color: var(--gold); font-weight: 700; }
+.record { display: grid; gap: 2px; padding: 10px 14px; border-radius: 12px; font-family: 'Space Grotesk', sans-serif; font-size: 17px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #ffe19a; background: linear-gradient(135deg, rgba(255, 207, 92, 0.22), rgba(255, 207, 92, 0.04)); border: 1px solid rgba(255, 207, 92, 0.55); animation: record-in 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.3); }
+.record.first { color: var(--ink); background: rgba(59, 130, 246, 0.14); border-color: rgba(110, 170, 255, 0.45); }
+.record span { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ink-2); }
+@keyframes record-in { from { opacity: 0; transform: scale(0.92); } }
+.btn.big { padding: 14px; font-size: 15px; }
+
+/* Motion is decoration only: with reduced motion everything appears in place at once. */
+@media (prefers-reduced-motion: reduce) {
+  .gain, .streak.milestone, .record, .hud, .challenge { animation: none !important; transition: none !important; }
+}
+
 @media (max-width: 760px) {
   .topbar { top: 10px; left: 12px; right: 12px; flex-direction: column; align-items: stretch; gap: 8px; }
   .brand { font-size: 17px; height: auto; }
@@ -245,4 +288,6 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
   .hover-name, .credits, .ocean-label { display: none; }
   .zoom { left: auto; right: 12px; bottom: auto; top: 120px; }
   .in-round .zoom { top: 230px; }
+  .sprint-score strong { font-size: 40px; }
+  .challenge { padding: 10px 12px; }
 }
