@@ -48,4 +48,8 @@ export function resolvePick(p: PickInput): Pick {
 // which point the islands are big enough to click (island countries keep their invisible halo around them).
 export const ringRadiusAt = (zoom: number) => 5.5 + (Math.min(5, Math.max(1, zoom)) - 1) * (2.5 / 4);
 export const MARKER_REACH_PX = 14;
+// A fingertip covers far more than a mouse pointer, so on touch screens a ring takes taps from further out. The reach
+// only ever applies over water or the ring's own land (see resolvePick), so it cannot take a tap on a neighbour.
+export const TOUCH_REACH_PX = 22;
+export const reachFor = (coarsePointer: boolean) => (coarsePointer ? TOUCH_REACH_PX : MARKER_REACH_PX);
 export const markerActive = (zoom: number) => zoom < 6.5;

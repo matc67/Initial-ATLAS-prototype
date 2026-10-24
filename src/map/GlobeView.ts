@@ -4,7 +4,7 @@ import { feature } from 'topojson-client';
 import type { GeometryCollection, Topology } from 'topojson-specification';
 import { distanceKm, type LngLat } from '../game/geo';
 import { isletsOf, outlinesOf } from './outlines';
-import { MARKER_REACH_PX, markerActive, resolvePick, ringRadiusAt } from './pick';
+import { markerActive, reachFor, resolvePick, ringRadiusAt } from './pick';
 
 // Round states: `found` = completed this round, `answer` = shown after the last miss, `target` = the country to name.
 // Progress states, from one recorded run: `first` = correct first try, `retry` = needed more attempts, `hinted` = Show me.
@@ -130,6 +130,8 @@ export class GlobeView {
   private cities: { el: HTMLElement; at: LngLat; marker: maplibregl.Marker }[] = [];
   private rings: { id: string; at: LngLat }[] = [];
   private small = new Set<string>();
+  // How far from a ring a click still counts for it: wider for touch (see pick.ts).
+  private reach = reachFor(typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
 
   constructor(container: HTMLElement, private events: GlobeEvents, private fx: { glow: HTMLElement; shade: HTMLElement }) {
     this.map = new maplibregl.Map({
@@ -273,9 +275,9 @@ export class GlobeView {
     const markers = this.rings
       .filter(r => markerActive(zoom) && distanceKm([c.lng, c.lat], r.at) < 7800)
       .map(r => ({ id: r.id, px: this.map.project(r.at).dist(point) }))
-      .filter(m => m.px <= MARKER_REACH_PX);
+      .filter(m => m.px <= this.reach);
     const landId = land ? String(land.properties.id) : null;
-    const pick = resolvePick({ land: landId, landIsSmall: !!landId && this.small.has(landId), halo: halo ? String(halo.properties.id) : null, markers, ringRadius: ringRadiusAt(zoom), reach: MARKER_REACH_PX });
+    const pick = resolvePick({ land: landId, landIsSmall: !!landId && this.small.has(landId), halo: halo ? String(halo.properties.id) : null, markers, ringRadius: ringRadiusAt(zoom), reach: this.reach });
     if (pick.kind === 'country') return { id: pick.id };
     if (pick.kind === 'ambiguous') return { id: null, ambiguous: pick.ids };
     const other = hits.find(f => isLandLayer(f.layer.id));

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { MARKER_REACH_PX, markerActive, resolvePick, ringRadiusAt, type PickInput } from './pick.ts';
+import { MARKER_REACH_PX, TOUCH_REACH_PX, markerActive, reachFor, resolvePick, ringRadiusAt, type PickInput } from './pick.ts';
 
 const base: PickInput = { land: null, landIsSmall: false, halo: null, markers: [], ringRadius: 6, reach: MARKER_REACH_PX };
 const pick = (p: Partial<PickInput>) => resolvePick({ ...base, ...p });
@@ -51,4 +51,12 @@ test('ring sizes follow the zoom; rings take clicks until zoom 6.5', () => {
   assert.equal(markerActive(4), true);
   assert.equal(markerActive(6), true);
   assert.equal(markerActive(7), false);
+});
+
+test('touch screens get a wider ring reach, still never over a neighbour’s land', () => {
+  assert.equal(reachFor(false), MARKER_REACH_PX);
+  assert.equal(reachFor(true), TOUCH_REACH_PX);
+  const touch = (p: Partial<PickInput>) => resolvePick({ ...base, reach: TOUCH_REACH_PX, ...p });
+  assert.deepEqual(touch({ markers: [{ id: 'TUV', px: 20 }] }), { kind: 'country', id: 'TUV' });
+  assert.deepEqual(touch({ land: 'FJI', markers: [{ id: 'TUV', px: 20 }] }), { kind: 'country', id: 'FJI' });
 });

@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import Starfield from './components/Starfield';
 import ChallengePicker from './components/ChallengePicker';
+import ProgressPanel from './components/ProgressPanel';
+import RegionNav from './components/RegionNav';
 import { ReviewList, SprintResults } from './components/Results';
 import { Flag, Icon } from './components/ui';
 import { AMERICAS, AREA_CAMERA, SET_LABEL, STATUS_LABEL, TABS, inArea, inSet, indexCountries, tabOf, type Area, type Country, type CountrySet } from './data/countries';
 import type { LngLat } from './game/geo';
+import { preloadFlags } from './data/flags';
 import { capitalsOf, loadPlaces, lngLat, type City, type PlacesFile } from './data/places';
 import { countryChallenge, sprintChallenge, type ChallengeKind, type GameMode, type GeographyChallenge } from './game/challenges';
 import { FEEDBACK } from './game/feedback';
 import { nameMatches } from './game/names';
-import { addRun, loadPerformance, perfKey, savePerformance, toGameRun, type GameRun, type RunSummary } from './game/records';
+import { addRun, loadPerformance, perfKey, savePerformance, toGameRun, type GameRun } from './game/records';
 import { pickRound } from './game/round';
 import { bestsOf, planSprint, type PersonalBests } from './game/sprint';
 import {
-  ATTEMPT_POINTS, LATE_POINTS, STREAK_MILESTONES, formatTime, guess as guessRound, isCompleted, isFirstTry, isPaused, newRound, next as nextRound,
+  ATTEMPT_POINTS, LATE_POINTS, STREAK_MILESTONES, formatTime, guess as guessRound, isCompleted, isPaused, newRound, next as nextRound,
   pause, pointsFor, resume, reveal as revealRound, statsOf, targetOf, typedGuess,
   type Attempt, type NewBests, type Round,
 } from './game/scoring';
+import { PACIFIC_VIEWS, type RegionView } from './map/regions';
 import { COLORS, GlobeView, type Camera, type Land, type StatusMap, type Theme } from './map/GlobeView';
 
 type View = 'explore' | 'play' | 'progress';
@@ -38,6 +42,8 @@ type Game = {
 const FLASH_GOOD = COLORS.good, FLASH_BAD = COLORS.bad, FLASH_SELECT = '#fff6dc';
 // A wrong guess flashes red only briefly; the player can click again at once.
 const WRONG_FLASH_MS = 220;
+// Flags fetched ahead of the current question (all 200 together are 2 MB, too much to fetch at once on a phone).
+const FLAGS_AHEAD = 4;
 const isMobile = () => window.innerWidth <= 760;
 // Area zoom levels are tuned for a 1440×900 window; smaller screens zoom out so the whole area still fits.
 const fit = (c: Camera): Camera => ({ ...c, zoom: c.zoom + Math.max(-1.1, Math.min(0.3, Math.log2(Math.min(window.innerWidth, window.innerHeight * 1.3) / 1150))) });
@@ -46,11 +52,8 @@ const areaShort = (a: Area) => (a === 'World' ? 'World' : a);
 const SET_KEY = 'atlas-country-set';
 const loadSet = (): CountrySet => { try { return localStorage.getItem(SET_KEY) === '195' ? '195' : '200'; } catch { return '200'; } };
 const pct = (n: number | null) => (n === null ? '–' : `${Math.round(n)}%`);
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 // How one country went in a recorded run, as a Progress globe status.
 const runStatus = (a: Attempt): 'first' | 'retry' | 'hinted' => (a.hint ? 'hinted' : a.mistakes ? 'retry' : 'first');
-// Wrong guesses grouped in first-seen order: ['BOL', 'PER', 'BOL'] → [['BOL', 2], ['PER', 1]].
-const wrongList = (ids: string[]) => [...ids.reduce((m, id) => m.set(id, (m.get(id) ?? 0) + 1), new Map<string, number>())];
 
 export default function App() {
   const mapDiv = useRef<HTMLDivElement>(null);
@@ -78,6 +81,8 @@ export default function App() {
   const [perf, setPerf] = useState(loadPerformance);
   // Which recorded run the Progress globe shows.
   const [runView, setRunView] = useState<'latest' | 'best'>('latest');
+  // Which kind of record Progress shows: Sprints first (the arcade mode), or Full Challenges.
+  const [progressKind, setProgressKind] = useState<ChallengeKind>('sprint');
   // Capitals and major cities, fetched the first time a country is opened in Explore.
   const [places, setPlaces] = useState<PlacesFile | null>(null);
   const [placesError, setPlacesError] = useState(false);
@@ -96,7 +101,8 @@ export default function App() {
   const challenge = useMemo(() => countryChallenge(area, countrySet, mode), [area, countrySet, mode]);
   const record = perf[perfKey(challenge)];
   const sprintRecord = perf[perfKey(sprintChallenge(area, countrySet, mode))];
-  const shownRun: GameRun | undefined = runView === 'best' ? record?.bestRun : record?.latestRun ?? record?.bestRun;
+  const progressRecord = progressKind === 'sprint' ? sprintRecord : record;
+  const shownRun: GameRun | undefined = runView === 'best' ? progressRecord?.bestRun : progressRecord?.latestRun ?? progressRecord?.bestRun;
   const runResults = useMemo(() => new Map(shownRun?.results.map(a => [a.id, a]) ?? []), [shownRun]);
 
   // Map events arrive outside React, so they always call the latest handlers through this ref.
@@ -168,6 +174,8 @@ export default function App() {
       queue = plan.queue;
     }
     if (!queue.length) return;
+    warmFlags(queue, 0);
+    setRegionView(a === 'Oceania' ? 'all' : null);
     setArea(a);
     setMode(m);
     setView('play');
@@ -179,6 +187,9 @@ export default function App() {
     const first = countries.get(queue[0]);
     if (m === 'name' && first) flyToCountry(first); else globeRef.current?.fly(fit(AREA_CAMERA[a]));
   }
+
+  // Fetches the flags of the next few questions ahead of time, so each one is already there when its question appears.
+  const warmFlags = (queue: string[], index: number) => preloadFlags(queue.slice(index, index + FLAGS_AHEAD).map(id => countries.get(id)?.iso2));
 
   // Applies a new Round: moves the camera for the next question and, when the run ends, saves it and updates the
   // challenge's personal records. Everything visible changes in this one update.
@@ -194,13 +205,14 @@ export default function App() {
       const all = { ...perf, [key]: result.performance };
       setPerf(all);
       savePerformance(all);
-      if (g.kind === 'full') setRunView('latest');
+      setRunView('latest');
+      setProgressKind(g.kind);
       bests = result.bests;
     } else if (moved && g.mode === 'name') {
       const c = countries.get(r.queue[r.index]);
       if (c) flyToCountry(c);
     }
-    if (moved) setGuess('');
+    if (moved) { setGuess(''); warmFlags(r.queue, r.index + 1); }
     const gain = answered && answered.points > 0 && !answered.hint ? { points: answered.points, key: r.answers.length } : moved ? null : g.gain;
     commit({ ...g, round: r, message, gain, bests, before });
   }
@@ -262,6 +274,13 @@ export default function App() {
   function next() {
     const g = gameRef.current;
     if (g?.round.phase === 'revealed') apply(g, nextRound(g.round, performance.now()), '');
+  }
+
+  // Pacific shortcuts in an Oceania round: a broad region, never the answer. Cleared when the camera moves on its own.
+  const [regionView, setRegionView] = useState<string | null>(null);
+  function goToRegion(v: RegionView) {
+    setRegionView(v.id);
+    globeRef.current?.fly(fit({ center: v.center, zoom: v.zoom }), 900);
   }
 
   // Same challenge, fresh run: a Sprint draws a new random ten.
@@ -334,7 +353,8 @@ export default function App() {
   const stats = round && statsOf(round, performance.now());
   const nameOf = (id: string) => (id.startsWith('typed:') ? `“${id.slice(6)}”` : countries.get(id)?.name ?? id);
 
-  return <div className={inRound ? 'app in-round' : 'app'}>
+  const answerBar = inRound && game?.mode === 'name' && round?.phase === 'asking' && !game.held;
+  return <div className={`app${inRound ? ' in-round' : ''}${answerBar ? ' has-answer-bar' : ''}`}>
     <Starfield />
     <div className="atmosphere" ref={glowDiv} />
     <div className="map" ref={mapDiv} />
@@ -350,7 +370,7 @@ export default function App() {
 
     <nav className="rail" aria-label="Sections">
       {([['explore', 'Explore', 'globe'], ['play', 'Play', 'play'], ['progress', 'Progress', 'bars']] as const).map(([v, label, icon]) =>
-        <button key={v} className={view === v ? 'active' : ''} onClick={() => { setView(v); setSelected(null); setSelectedLand(null); }}><Icon name={icon} /><span>{label}</span></button>)}
+        <button key={v} className={view === v ? 'active' : ''} onClick={() => { setView(v); setSelected(null); setSelectedLand(null); setHoverId(null); }}><Icon name={icon} /><span>{label}</span></button>)}
       <span className="rail-sep" />
       <button className={help ? 'active' : ''} aria-expanded={help} onClick={() => setHelp(h => !h)}><Icon name="help" /><span>Help</span></button>
     </nav>
@@ -401,7 +421,9 @@ export default function App() {
       </>}
     </section>}
 
-    {inRound && game?.mode === 'name' && round?.phase === 'asking' && !game.held && <form className="answer-bar" onSubmit={submitName}>
+    {inRound && game?.area === 'Oceania' && !game.held && <RegionNav label="Pacific" views={PACIFIC_VIEWS} active={regionView} onPick={goToRegion} />}
+
+    {answerBar && <form className="answer-bar" onSubmit={submitName}>
       <input autoFocus value={guess} onChange={e => setGuess(e.target.value)} placeholder="Type your answer…" aria-label="Country name" />
       <button type="submit" aria-label="Submit answer"><Icon name="arrow" /></button>
     </form>}
@@ -459,57 +481,12 @@ export default function App() {
         <p className="muted">{landNote(selectedLand).why}</p>
       </> : <p className="muted">Explore 200 countries. Click any country to learn about it.</p>)}
 
-      {view === 'progress' && <>
-        <div className="eyebrow">Your performance · {areaTitle(area)}</div>
-        <div className="segmented two" role="radiogroup" aria-label="Countries">
-          <button role="radio" aria-checked={countrySet === '200'} className={countrySet === '200' ? 'on' : ''} onClick={() => setCountrySet('200')}>200 Countries</button>
-          <button role="radio" aria-checked={countrySet === '195'} className={countrySet === '195' ? 'on' : ''} onClick={() => setCountrySet('195')}>Classic 195</button>
-        </div>
-        <div className="segmented two" role="radiogroup" aria-label="Game mode">
-          <button role="radio" aria-checked={mode === 'find'} className={mode === 'find' ? 'on' : ''} onClick={() => setMode('find')}>Find it</button>
-          <button role="radio" aria-checked={mode === 'name'} className={mode === 'name' ? 'on' : ''} onClick={() => setMode('name')}>Name it</button>
-        </div>
-        {!record ? <>
-          <p className="muted">No completed runs yet. Play this challenge to set your first record.</p>
-          <button className="btn primary" onClick={() => startRound()} disabled={loading || !playIds.length}>Play {areaShort(area)} · {playIds.length} countries</button>
-        </> : <>
-          <div className="headline quad">
-            <div><span>Best score</span><strong>{record.bestScore.toLocaleString()}</strong><small>/ {record.best.maxScore.toLocaleString()}</small></div>
-            <div><span>Best first-try accuracy</span><strong>{pct(record.bestAccuracy)}</strong></div>
-            <div><span>Fastest</span><strong>{formatTime(record.fastestMs)}</strong></div>
-            <div><span>Fewest mistakes</span><strong>{record.fewestMistakes}</strong></div>
-          </div>
-          <dl className="facts">
-            <div><dt>Completed runs</dt><dd>{record.runs}{record.perfectRuns > 0 && <span className="gold"> · {record.perfectRuns} perfect</span>}</dd></div>
-            <div><dt>Longest first-try streak</dt><dd>{record.longestStreak}</dd></div>
-            <div><dt>Best overall run</dt><dd>{runLine(record.best)}</dd></div>
-            {record.latest && <div><dt>Latest run</dt><dd>{runLine(record.latest)}</dd></div>}
-          </dl>
-          {record.latestRun ? <>
-            <div className="segmented two" role="radiogroup" aria-label="Run shown on the globe">
-              <button role="radio" aria-checked={runView === 'latest'} className={runView === 'latest' ? 'on' : ''} onClick={() => setRunView('latest')}>Latest run</button>
-              <button role="radio" aria-checked={runView === 'best'} className={runView === 'best' ? 'on' : ''} onClick={() => setRunView('best')} disabled={!record.bestRun}>Best run</button>
-            </div>
-            <ul className="levels compact">
-              <Level color={COLORS.progress.first} label="Correct first try" n={legend.first} />
-              <Level color={COLORS.progress.retry} label="Needed more attempts" n={legend.retry} />
-              <Level color={COLORS.progress.hinted} label="Used Show me" n={legend.hinted} />
-              <Level color={COLORS.progress.none} label="Not attempted" n={legend.none} />
-            </ul>
-            {selectedCountry ? <RunCountry country={selectedCountry} result={runResults.get(selectedCountry.id)} nameOf={nameOf} onClose={() => setSelected(null)} />
-              : <p className="fine">Click a country to see how it went in this run.</p>}
-          </> : <p className="fine">Country-by-country results are saved from your next run of this challenge.</p>}
-          {record.history.length > 0 && <details className="history">
-            <summary>Recent runs · {record.history.length}</summary>
-            <table>
-              <thead><tr><th>Date</th><th>Score</th><th>Acc.</th><th>✕</th><th>Time</th></tr></thead>
-              <tbody>{record.history.map(h => <tr key={h.runId}><td>{shortDate(h.at)}</td><td>{h.score.toLocaleString()}</td><td>{pct(h.accuracy)}</td><td>{h.mistakes}</td><td>{formatTime(h.ms)}</td></tr>)}</tbody>
-            </table>
-          </details>}
-          <button className="btn" onClick={() => startRound()} disabled={loading || !playIds.length}>Play {areaShort(area)} · {playIds.length} countries</button>
-          <p className="fine">Runs rank by first-try accuracy, then score, then fewer mistakes, then time. Saved in this browser.</p>
-        </>}
-      </>}
+      {view === 'progress' && <ProgressPanel
+        store={perf} area={area} set={countrySet} mode={mode} kind={progressKind}
+        onArea={chooseArea} onSet={setCountrySet} onMode={setMode} onKind={k => { setProgressKind(k); setSelected(null); }}
+        record={progressRecord} runView={runView} onRunView={setRunView} legend={legend}
+        selected={selectedCountry} result={selectedCountry && runResults.get(selectedCountry.id)} onCloseCountry={() => setSelected(null)}
+        nameOf={nameOf} loading={loading} poolSize={playIds.length} onPlay={k => startRound({ kind: k })} />}
     </aside>}
 
     {hoverCountry && <div className="hover-name"><Flag iso2={hoverCountry.iso2} />{hoverCountry.name}</div>}
@@ -518,9 +495,6 @@ export default function App() {
     <footer className="credits">Borders and relief: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> · Flags: flag-icons</footer>
   </div>;
 }
-
-// "1,025 · 83% · 2 ✕ · 4:32 · Oct 23"
-const runLine = (r: RunSummary) => `${r.score.toLocaleString()} · ${pct(r.accuracy)} · ${r.mistakes} ✕ · ${formatTime(r.ms)} · ${new Date(r.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 
 // Explore: a country's facts, its capital and major cities (Natural Earth), and the challenges it leads to.
 function CountryPanel({ country, places, placesError, loaded, challengeSize, onPlay, onClose }: {
@@ -548,23 +522,6 @@ function CountryPanel({ country, places, placesError, loaded, challengeSize, onP
     <p className="fine">Coming later: {country.name}’s regions and cities as challenges of their own. Capitals and cities: Natural Earth.</p>
   </>;
 }
-
-// Progress: how one country went in the run shown on the globe.
-function RunCountry({ country, result: a, nameOf, onClose }: { country: Country; result?: Attempt; nameOf: (id: string) => string; onClose: () => void }) {
-  return <div className="run-country">
-    <div className="card-head"><strong className="with-flag"><Flag iso2={country.iso2} />{country.name}</strong><button className="close" aria-label="Close" onClick={onClose}>×</button></div>
-    {!a ? <p className="fine">Not part of this run.</p> : <dl className="mini">
-      <div><dt>{a.hint ? 'Guesses before Show me' : 'Attempts'}</dt><dd>{a.hint ? a.mistakes : a.mistakes + 1}</dd></div>
-      <div><dt>Incorrect guesses</dt><dd>{a.mistakes}</dd></div>
-      <div><dt>First-try correct</dt><dd>{isFirstTry(a) ? 'Yes' : 'No'}</dd></div>
-      <div><dt>Points earned</dt><dd>{a.points}</dd></div>
-      {a.wrongIds.length > 0 && <div className="wide"><dt>Clicked instead</dt><dd>{wrongList(a.wrongIds).map(([id, n]) => `${nameOf(id)}${n > 1 ? ` ×${n}` : ''}`).join(', ')}</dd></div>}
-    </dl>}
-  </div>;
-}
-
-const Level = ({ color, label, n }: { color: string; label: string; n: number }) =>
-  <li><i style={{ background: color }} /><span>{label}</span><b>{n}</b></li>;
 
 // Why a piece of land is on the globe but not in the game. Wording follows Natural Earth's own classification.
 function landNote(l: Land): { status: string; why: string } {

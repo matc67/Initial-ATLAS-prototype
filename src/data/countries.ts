@@ -20,7 +20,7 @@ export const AREA_CAMERA: { [A in Area]: { center: LngLat; zoom: number } } = {
   Europe: { center: [16, 52], zoom: 3.2 },
   'North America': { center: [-92, 32], zoom: 2.3 },
   'South America': { center: [-60, -20], zoom: 2.6 },
-  Oceania: { center: [160, -12], zoom: 2.4 },
+  Oceania: { center: [167, -10], zoom: 2.45 },  // = PACIFIC_VIEWS 'all' (src/map/regions.ts), centred on its countries across 180°
 };
 
 export const STATUS_LABEL: { [S in RosterEntry['status']]: string } = {

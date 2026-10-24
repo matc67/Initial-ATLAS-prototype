@@ -26,7 +26,11 @@ export type Performance = {
   // Full runs, for the Progress globe. Missing for records carried over from before per-country results were saved.
   bestRun?: GameRun; latestRun?: GameRun;
   history: RunSummary[];        // newest first, up to HISTORY_LIMIT
+  // Running totals over every run counted so far, for all-time stats that the capped history cannot give. Added in
+  // v0.2.2: older records start from their history (see totalsOf), so `runs` can be lower than the record's run count.
+  totals?: Totals;
 };
+export type Totals = { runs: number; answered: number; firstTry: number };
 export const HISTORY_LIMIT = 30;
 export type PerformanceStore = { [key: string]: Performance };
 // Records are kept per challenge *version*: if the country list changes, older records stay but are not compared.
@@ -48,6 +52,13 @@ export function summarize(run: GameRun): RunSummary {
   };
 }
 
+const NO_TOTALS: Totals = { runs: 0, answered: 0, firstTry: 0 };
+const answeredIn = (s: RunSummary) => Math.round(s.maxScore / MAX_POINTS);
+const addTotals = (t: Totals, s: RunSummary): Totals => ({ runs: t.runs + 1, answered: t.answered + answeredIn(s), firstTry: t.firstTry + answeredIn(s) - s.missed });
+// A record's totals: kept since v0.2.2, or rebuilt from the runs its history still holds. Runs older than the history
+// (and records carried over from v1, which kept no runs) are not counted, and `runs` says how many were.
+export const totalsOf = (p: Performance): Totals => p.totals ?? p.history.reduce(addTotals, NO_TOTALS);
+
 // Folds a completed run into its challenge's record. Each best is kept separately, so the fastest time can come from a
 // different run than the best score.
 export function addRun(prev: Performance | undefined, run: GameRun): { performance: Performance; bests: NewBests } {
@@ -56,7 +67,7 @@ export function addRun(prev: Performance | undefined, run: GameRun): { performan
     performance: {
       challengeId: run.challengeId, version: run.version, runs: 1, perfectRuns: s.perfect ? 1 : 0,
       bestScore: s.score, bestAccuracy: s.accuracy, fewestMistakes: s.mistakes, fastestMs: s.ms, longestStreak: s.streak,
-      best: s, latest: s, bestRun: run, latestRun: run, history: [s],
+      best: s, latest: s, bestRun: run, latestRun: run, history: [s], totals: addTotals(NO_TOTALS, s),
     },
     bests: { score: true, accuracy: true, mistakes: true, time: true, streak: true, run: true },
   };
@@ -71,7 +82,7 @@ export function addRun(prev: Performance | undefined, run: GameRun): { performan
       fewestMistakes: Math.min(prev.fewestMistakes, s.mistakes), fastestMs: Math.min(prev.fastestMs, s.ms),
       longestStreak: Math.max(prev.longestStreak, s.streak),
       best: bests.run ? s : prev.best, bestRun: bests.run ? run : prev.bestRun,
-      latest: s, latestRun: run, history: [s, ...prev.history].slice(0, HISTORY_LIMIT),
+      latest: s, latestRun: run, history: [s, ...prev.history].slice(0, HISTORY_LIMIT), totals: addTotals(totalsOf(prev), s),
     },
     bests,
   };

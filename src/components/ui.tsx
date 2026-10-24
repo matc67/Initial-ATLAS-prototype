@@ -1,8 +1,18 @@
 // Small pieces shared by the app's panels.
+import { useEffect, useState } from 'react';
+import { flagUrl } from '../data/flags';
 
-// Flag artwork from the flag-icons package (MIT), copied to public/flags by `npm run data`; emoji flags do not render on Windows.
-export const Flag = ({ iso2, size }: { iso2?: string; size?: 'lg' }) =>
-  iso2 ? <span className={size ? `flag ${size}` : 'flag'} style={{ backgroundImage: `url(${import.meta.env.BASE_URL}flags/${iso2.toLowerCase()}.svg)` }} aria-hidden="true" /> : null;
+// A country's flag. Until the image has loaded, and for good if it fails, the box shows the country's code instead of an
+// empty rectangle. Decorative: the country's name always sits beside it.
+export function Flag({ iso2, size }: { iso2?: string; size?: 'lg' }) {
+  const [state, setState] = useState<'loading' | 'ok' | 'failed'>('loading');
+  useEffect(() => setState('loading'), [iso2]);
+  if (!iso2) return null;
+  return <span className={`flag${size ? ` ${size}` : ''}${state === 'ok' ? '' : ' fallback'}`} aria-hidden="true">
+    <b>{iso2.toUpperCase()}</b>
+    {state !== 'failed' && <img src={flagUrl(iso2)} alt="" draggable={false} onLoad={() => setState('ok')} onError={() => setState('failed')} />}
+  </span>;
+}
 
 const ICONS = {
   globe: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 0c2.8 2.7 4.2 6 4.2 10S14.8 19.3 12 22m0-20C9.2 4.7 7.8 8 7.8 12s1.4 7.3 4.2 10M2.5 9h19M2.5 15h19',
