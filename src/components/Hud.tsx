@@ -37,7 +37,7 @@ export default function Hud(p: Props) {
       <span className="hud-area">{p.kindLabel && <><Icon name="bolt" />{p.kindLabel} · </>}{p.area}</span>
       <div className="bar"><div style={{ width: `${(stats.completed / stats.total) * 100}%` }} /></div>
       <span className="hud-count"><b>{stats.completed}</b> / {stats.total}</span>
-      <button className="icon-btn" aria-label={p.sound ? 'Mute sounds' : 'Turn sounds on'} aria-pressed={p.sound} title={p.sound ? 'Sound on' : 'Sound off'} onClick={p.onSound}><Icon name={p.sound ? 'sound' : 'mute'} /></button>
+      <button className="icon-btn" data-silent aria-label={p.sound ? 'Mute sounds' : 'Turn sounds on'} aria-pressed={p.sound} title={p.sound ? 'Sound on' : 'Sound off'} onClick={p.onSound}><Icon name={p.sound ? 'sound' : 'mute'} /></button>
       <button className="icon-btn" aria-label={p.held ? 'Resume' : 'Pause'} onClick={() => p.onHold(!p.held)}><Icon name={p.held ? 'play-small' : 'pause'} /></button>
       <button className="close" aria-label="End round" onClick={p.onEnd}>×</button>
     </div>
@@ -58,7 +58,7 @@ export default function Hud(p: Props) {
       </div>
       <div className="readout score" aria-label={`Score ${stats.score}`}>
         <span>Score</span><strong className={good ? 'up' : ''} key={good ? fx!.key : 'score'}>{score.toLocaleString()}</strong>
-        {good && good.points > 0 && <em className="gain" key={`g${fx!.key}`}>+{good.points}</em>}
+        {good && good.points > 0 && <em className="gain" key={`g${fx!.key}`}>✓ +{good.points}</em>}
         {good && good.bonus > 0 && <em className="gain bonus" key={`b${fx!.key}`}>+{good.bonus} bonus</em>}
       </div>
       <div className={`readout streak f${tier}`} title="Streak: first-try answers in a row">

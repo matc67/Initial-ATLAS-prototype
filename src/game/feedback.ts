@@ -26,18 +26,18 @@ export function answerEvent(before: Round, after: Round, outcome: Outcome): Answ
 }
 
 export const nextAttempt = (points: number) => `Next attempt · ${points} pts`;
-// A streak this long is worth saying it was lost; a streak of 1 breaking is not news.
-export const STREAK_LOST_FROM = 2;
+// "Streak lost" shows whenever a streak of at least this length breaks (never for a streak of 0).
+export const STREAK_LOST_FROM = 1;
 
 // The celebration for each streak milestone, growing with the streak. No country is named.
 export function celebration(m: Milestone): { icon: string; title: string; detail: string; tier: 1 | 2 | 3 | 4 } {
-  const bonus = `+${m.bonus.toLocaleString('en-US')} bonus`, row = `${m.streak} in a row · ${bonus}`;
-  if (m.streak >= 100) return { icon: '👑', title: 'Legendary!', detail: row, tier: 4 };
-  if (m.streak >= 50) return { icon: '💎', title: 'Unbelievable!', detail: row, tier: 4 };
-  if (m.streak >= 20) return { icon: '🏆', title: 'Incredible streak!', detail: row, tier: 4 };
-  if (m.streak >= 10) return { icon: '⚡', title: 'Unstoppable!', detail: row, tier: 3 };
-  if (m.streak >= 5) return { icon: '🔥', title: 'On fire!', detail: row, tier: 2 };
-  return { icon: '🔥', title: `${m.streak} in a row!`, detail: bonus, tier: 1 };
+  const detail = `+${m.bonus.toLocaleString('en-US')} bonus`;
+  if (m.streak >= 100) return { icon: '👑', title: 'World class!', detail, tier: 4 };
+  if (m.streak >= 50) return { icon: '💎', title: 'Legendary!', detail, tier: 4 };
+  if (m.streak >= 20) return { icon: '🏆', title: 'Incredible streak!', detail, tier: 4 };
+  if (m.streak >= 10) return { icon: '⚡', title: 'Unstoppable!', detail, tier: 3 };
+  if (m.streak >= 5) return { icon: '🔥', title: 'On fire!', detail, tier: 2 };
+  return { icon: '🔥', title: `${m.streak} in a row!`, detail, tier: 1 };
 }
 
 // The live streak flame: 0 neutral, 1–2 subtle, 3–4 bright, 5–9 gold, 10+ blazing.

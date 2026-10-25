@@ -3,6 +3,7 @@
 import { SPRINT_SIZE } from './challenges.ts';
 import type { Performance, RunSummary } from './records.ts';
 import { pickRound } from './round.ts';
+import type { NewBests } from './scoring.ts';
 
 // A Sprint is always exactly SPRINT_SIZE countries. A pool too small for that is reported, never shortened, so every
 // Sprint record means the same thing.
@@ -16,6 +17,11 @@ export function planSprint(pool: string[], random: () => number = Math.random): 
 export type PersonalBests = { score: number; accuracy: number; fastestMs: number; longestStreak: number; fewestMistakes: number; runs: number };
 export const bestsOf = (p: Performance | undefined): PersonalBests | null =>
   p ? { score: p.bestScore, accuracy: p.bestAccuracy, fastestMs: p.fastestMs, longestStreak: p.longestStreak, fewestMistakes: p.fewestMistakes, runs: p.runs } : null;
+
+// Whether a finished run set a new personal record: the best run by rank, or a higher score. Never on a first run (that
+// is a first record). The results banner and the victory sound both use this, so they always agree, and it is one
+// answer however many stats improved, so there is only ever one celebration.
+export const isNewRecord = (before: PersonalBests | null, bests: NewBests | null) => before !== null && !!bests && (bests.run || bests.score);
 
 // One line of the results comparison. `better` is true when this run beat the previous best (never on a first run,
 // which is a first record instead); `delta` is this run minus the previous best, in the stat's own unit.

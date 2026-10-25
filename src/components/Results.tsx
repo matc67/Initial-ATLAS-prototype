@@ -1,7 +1,7 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
 import type { Country } from '../data/countries';
 import { formatTime, isFirstTry, type Attempt, type NewBests, type Stats } from '../game/scoring';
-import { compareWithBests, type Comparison, type PersonalBests } from '../game/sprint';
+import { compareWithBests, isNewRecord, type Comparison, type PersonalBests } from '../game/sprint';
 import { Flag, Icon, useTween } from './ui';
 
 // Wrong guesses grouped in first-seen order: ['BOL', 'PER', 'BOL'] → [['BOL', 2], ['PER', 1]].
@@ -51,7 +51,7 @@ export function SprintResults({ area, modeLabel, stats, answers, before, bests, 
   const rows = compareWithBests({ score: stats.score, accuracy: stats.accuracy ?? 0, ms: stats.elapsedMs, streak: stats.longestStreak, mistakes: stats.totalMistakes }, before);
   const [score, ...tiles] = rows;
   const shown = useTween(stats.score, 650, 0);
-  const record = before !== null && (bests?.run || score.better);
+  const record = isNewRecord(before, bests);
   // Play again takes focus so Enter replays, without scrolling the panel away from the score (autoFocus would).
   const again = useRef<HTMLButtonElement>(null);
   useEffect(() => again.current?.focus({ preventScroll: true }), []);

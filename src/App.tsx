@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import Starfield from './components/Starfield';
 import ChallengePicker from './components/ChallengePicker';
 import Hud, { type HudFx } from './components/Hud';
@@ -15,13 +15,13 @@ import { answerEvent, FEEDBACK, type AnswerEvent } from './game/feedback';
 import { nameMatches } from './game/names';
 import { addRun, loadPerformance, perfKey, savePerformance, toGameRun, type GameRun } from './game/records';
 import { pickRound } from './game/round';
-import { bestsOf, planSprint, type PersonalBests } from './game/sprint';
+import { bestsOf, isNewRecord, planSprint, type PersonalBests } from './game/sprint';
 import {
   ATTEMPT_POINTS, LATE_POINTS, STREAK_MILESTONES, bonusesOf, formatTime, guess as guessRound, isCompleted, isPaused, newRound, next as nextRound,
   pause, resume, reveal as revealRound, statsOf, targetOf, typedGuess,
   type Attempt, type NewBests, type Round,
 } from './game/scoring';
-import { loadSound, play as playSound, saveSound } from './sound';
+import { AudioManager, cueFor } from './audio';
 import { PACIFIC_VIEWS, type RegionView } from './map/regions';
 import { COLORS, GlobeView, type Camera, type Land, type StatusMap, type Theme } from './map/GlobeView';
 
@@ -89,11 +89,14 @@ export default function App() {
   const [places, setPlaces] = useState<PlacesFile | null>(null);
   const [placesError, setPlacesError] = useState(false);
   const [countrySet, setCountrySet] = useState<CountrySet>(loadSet);
-  // Arcade sounds: off until the player turns them on, then remembered.
-  const [sound, setSound] = useState(loadSound);
-  const soundRef = useRef(sound);
-  const toggleSound = () => { const on = !sound; setSound(on); soundRef.current = on; saveSound(on); if (on) playSound('correct'); };
-  const cue = (c: Parameters<typeof playSound>[0]) => { if (soundRef.current) playSound(c); };
+  // Arcade sounds (audio.ts): off until the player turns them on; on/off and volume are remembered. The manager is the
+  // source of truth; these mirror it for the speaker button and the volume slider.
+  const audio = useMemo(() => new AudioManager(), []);
+  const [sound, setSound] = useState(audio.enabled);
+  const [volume, setVolumeState] = useState(audio.volume);
+  // Turning sound on is a click, so the browser lets audio start; a quiet click confirms it.
+  const toggleSound = () => { audio.setEnabled(!audio.enabled); setSound(audio.enabled); audio.play({ kind: 'ui' }); };
+  const setVolume = (v: number) => { audio.setVolume(v); setVolumeState(audio.volume); };
   const fxKey = useRef(0);
   useEffect(() => { try { localStorage.setItem(SET_KEY, countrySet); } catch { /* storage blocked: the choice lasts for this visit */ } }, [countrySet]);
 
@@ -221,14 +224,15 @@ export default function App() {
       setRunView('latest');
       setProgressKind(g.kind);
       bests = result.bests;
-      if (before && result.bests.run) setTimeout(() => cue('record'), 350);
+      // One victory flourish for a genuine new record, however many stats improved.
+      if (isNewRecord(before, result.bests)) setTimeout(() => audio.play({ kind: 'record' }), 350);
     } else if (moved && g.mode === 'name') {
       const c = countries.get(r.queue[r.index]);
       if (c) flyToCountry(c);
     }
     if (moved) { setGuess(''); warmFlags(r.queue, r.index + 1); }
     const fx = event || lost ? { key: ++fxKey.current, at: performance.now(), event, lost } : g.fx;
-    if (event) cue(event.kind === 'wrong' ? 'wrong' : event.milestone ? 'milestone' : 'correct');
+    if (event) audio.play(cueFor(event));
     commit({ ...g, round: r, message, miss, fx, bests, before });
   }
 
@@ -324,7 +328,7 @@ export default function App() {
       const typing = (e.target as HTMLElement).tagName === 'INPUT', g = gameRef.current;
       if (e.key === 'Enter' && g?.round.phase === 'revealed' && !typing) next();
       // Enter replays a finished Sprint straight away (the Play again button has focus, so this is only for clicks elsewhere).
-      else if (e.key === 'Enter' && g?.round.phase === 'done' && g.kind === 'sprint' && !typing && !(e.target instanceof HTMLButtonElement)) playAgain();
+      else if (e.key === 'Enter' && g?.round.phase === 'done' && g.kind === 'sprint' && !typing && !(e.target instanceof HTMLButtonElement)) { audio.play({ kind: 'ui' }); playAgain(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -382,7 +386,14 @@ export default function App() {
   const nameOf = (id: string) => (id.startsWith('typed:') ? `“${id.slice(6)}”` : countries.get(id)?.name ?? id);
 
   const answerBar = inRound && game?.mode === 'name' && round?.phase === 'asking' && !game.held;
-  return <div className={`app${inRound ? ' in-round' : ''}${answerBar ? ' has-answer-bar' : ''}`}>
+  // Menu sounds: a quiet click for any button press (modes, starting a challenge, Play again, navigation). Buttons that
+  // make their own sound (answers, the speaker) and map controls (zoom) are marked data-silent. Globe drags, zooms,
+  // hovers and camera moves are not buttons, so they never make a sound.
+  const uiClick = (e: MouseEvent) => {
+    const b = (e.target as HTMLElement).closest('button');
+    if (b && !b.disabled && !b.closest('[data-silent]')) audio.play({ kind: 'ui' });
+  };
+  return <div className={`app${inRound ? ' in-round' : ''}${answerBar ? ' has-answer-bar' : ''}`} onClick={uiClick}>
     <Starfield />
     <div className="atmosphere" ref={glowDiv} />
     <div className="map" ref={mapDiv} />
@@ -412,6 +423,11 @@ export default function App() {
         <li><span className="k miss" />Dashed red: missed. Gold: the answer.</li>
       </ul>
       <p className="fine">Points: {ATTEMPT_POINTS.join(', ')} for the 1st, 2nd and 3rd attempt, then {LATE_POINTS}. Show me gives 0. Streak bonuses for first-try answers in a row: {STREAK_MILESTONES.map(m => `+${m.bonus.toLocaleString()} at ${m.streak}`).join(', ')}. Time never changes points; it only separates runs that are equally accurate.</p>
+      <div className="sound-row" data-silent>
+        <button className={sound ? 'btn small on' : 'btn small'} aria-pressed={sound} onClick={toggleSound}><Icon name={sound ? 'sound' : 'mute'} />Sound {sound ? 'on' : 'off'}</button>
+        <input type="range" min={0} max={1} step={0.05} value={volume} disabled={!sound} aria-label="Volume"
+          onChange={e => setVolume(Number(e.target.value))} onPointerUp={() => audio.play({ kind: 'correct', streak: 1 })} />
+      </div>
     </aside>}
 
     {inRound && game && round && target && stats && <Hud
@@ -424,7 +440,7 @@ export default function App() {
 
     {answerBar && <form className="answer-bar" onSubmit={submitName}>
       <input autoFocus value={guess} onChange={e => setGuess(e.target.value)} placeholder="Type your answer…" aria-label="Country name" />
-      <button type="submit" aria-label="Submit answer"><Icon name="arrow" /></button>
+      <button type="submit" aria-label="Submit answer" data-silent><Icon name="arrow" /></button>
     </form>}
 
     {!inRound && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : 'card panel'}>
@@ -453,7 +469,7 @@ export default function App() {
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'full' && <>
         <div className="eyebrow">{areaShort(game.area)} Challenge Complete · {stats.total} Countries · {game.mode === 'find' ? 'Find it' : 'Name it'}</div>
         {stats.perfect && <div className="perfect">Perfect run · {stats.score.toLocaleString()}<span>Every country first try, the maximum score. No mistakes, no hints.</span></div>}
-        {game.before && game.bests?.run && <div className="record"><Burst />New personal best<span>Your best {areaShort(game.area)} Challenge run yet.</span></div>}
+        {isNewRecord(game.before, game.bests) && <div className="record"><Burst />New personal best<span>Your best {areaShort(game.area)} Challenge run yet.</span></div>}
         <div className="headline">
           <div><span>Score</span><strong>{stats.score.toLocaleString()}</strong><small>/ {stats.maxScore.toLocaleString()}</small>{game.bests?.score && <em>New best</em>}</div>
           <div><span>First-try accuracy</span><strong>{pct(stats.accuracy)}</strong>{game.bests?.accuracy && <em>New best</em>}</div>
@@ -491,7 +507,7 @@ export default function App() {
     </aside>}
 
     {hoverCountry && <div className="hover-name"><Flag iso2={hoverCountry.iso2} />{hoverCountry.name}</div>}
-    <div className="zoom"><button aria-label="Zoom in" onClick={() => globeRef.current?.zoomBy(1)}>+</button><button aria-label="Zoom out" onClick={() => globeRef.current?.zoomBy(-1)}>−</button></div>
+    <div className="zoom" data-silent><button aria-label="Zoom in" onClick={() => globeRef.current?.zoomBy(1)}>+</button><button aria-label="Zoom out" onClick={() => globeRef.current?.zoomBy(-1)}>−</button></div>
     {error && <div className="error">{error}</div>}
     <footer className="credits">Borders and relief: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> · Flags: flag-icons</footer>
   </div>;

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { countryChallenge, countryIds, sprintChallenge } from './challenges.ts';
-import { answerEvent, celebration, flameTier, nextAttempt } from './feedback.ts';
+import { answerEvent, celebration, FEEDBACK, flameTier, nextAttempt } from './feedback.ts';
 import { addRun, migrateRecordsV1, perfKey, summarize, toGameRun, type GameRun } from './records.ts';
 import {
   bonusAt, bonusesOf, guess, maxBonusFor, maxScoreFor, milestoneAt, newRound, next, pause, resume, reveal, scoreOf, statsOf,
@@ -165,12 +165,33 @@ test('ignored clicks give no feedback and never break a streak', () => {
 
 test('celebrations grow with the streak and never name a country', () => {
   const c = STREAK_MILESTONES.map(celebration);
-  assert.deepEqual(c.slice(0, 4).map(x => [x.icon, x.title, x.detail]), [
-    ['🔥', '3 in a row!', '+50 bonus'], ['🔥', 'On fire!', '5 in a row · +100 bonus'],
-    ['⚡', 'Unstoppable!', '10 in a row · +250 bonus'], ['🏆', 'Incredible streak!', '20 in a row · +500 bonus'],
+  assert.deepEqual(c.map(x => [x.title, x.detail]), [
+    ['3 in a row!', '+50 bonus'], ['On fire!', '+100 bonus'], ['Unstoppable!', '+250 bonus'],
+    ['Incredible streak!', '+500 bonus'], ['Legendary!', '+1,500 bonus'], ['World class!', '+4,000 bonus'],
   ]);
   assert.deepEqual(c.map(x => x.tier), [1, 2, 3, 4, 4, 4]);
   assert.deepEqual([0, 1, 2, 3, 4, 5, 9, 10, 40].map(flameTier), [0, 1, 1, 2, 2, 3, 3, 4, 4]);
   const names = ROSTER.flatMap(r => [r.name, ...r.aliases]).map(normalize);
   for (const m of c.flatMap(x => [x.title, x.detail])) assert.ok(!names.some(n => ` ${normalize(m)} `.includes(` ${n} `)), m);
+});
+
+test('a correct answer moves to the next question at once: feedback never holds up the round', () => {
+  const r = newRound(ids(3), 0);
+  const g = guess(r, 'Q0', 1000);
+  assert.deepEqual([g.outcome, g.round.index, g.round.phase], ['correct', 1, 'asking']);
+  // The next question can be answered straight away, even 1 ms later.
+  assert.equal(guess(g.round, 'Q1', 1001).outcome, 'correct');
+  // And a wrong answer allows an immediate retry.
+  const w = guess(r, 'Q2', 1000);
+  assert.deepEqual([w.outcome, guess(w.round, 'Q0', 1001).outcome], ['wrong', 'correct']);
+});
+
+test('wrong-answer feedback never names a country', () => {
+  const names = ROSTER.flatMap(r => [r.name, ...r.aliases]).map(normalize);
+  for (const m of [FEEDBACK.wrong, ...[100, 50, 25, 10].map(nextAttempt), 'Streak lost']) {
+    assert.ok(!names.some(n => ` ${normalize(m)} `.includes(` ${n} `)), m);
+  }
+  // The wrong event carries points and the lost streak only: no id of what was clicked.
+  const r = newRound(ids(2), 0), g = guess(r, 'FRA', 1000);
+  assert.deepEqual(Object.keys(answerEvent(r, g.round, g.outcome)!).sort(), ['kind', 'lostStreak', 'nextPoints']);
 });

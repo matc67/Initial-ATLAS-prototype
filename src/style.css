@@ -246,7 +246,7 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 /* A one-off glow around the HUD for each answer: green, red, or gold at a streak milestone. Never a full-screen flash. */
 .hud-flash { position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; animation: hud-flash 0.6s ease-out forwards; }
 .hud-flash.good { box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.7), 0 0 22px rgba(74, 222, 128, 0.25); }
-.hud-flash.bad { box-shadow: 0 0 0 1.5px rgba(255, 107, 107, 0.9), 0 0 26px rgba(255, 107, 107, 0.3); animation-duration: 0.7s; }
+.hud-flash.bad { box-shadow: 0 0 0 1.5px rgba(232, 112, 112, 0.65), 0 0 22px rgba(232, 112, 112, 0.2); animation-duration: 0.65s; }
 .hud-flash.gold { box-shadow: 0 0 0 1.5px rgba(255, 207, 92, 0.95), 0 0 34px rgba(255, 207, 92, 0.45); animation-duration: 1.2s; }
 @keyframes hud-flash { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
 
@@ -276,13 +276,14 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 
 /* On the globe, where an answer landed: a ring that swells and fades, with the points or a ✕. Takes no clicks. */
 .answer-pulse { pointer-events: none; width: 0; height: 0; }
-.answer-pulse i { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%; border: 2.5px solid currentColor; opacity: 0; animation: pulse-ring 0.65s ease-out forwards; }
-.answer-pulse b, .answer-pulse small { position: absolute; left: 0; transform: translateX(-50%); white-space: nowrap; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8); opacity: 0; animation: pulse-label 0.7s ease-out forwards; }
+.answer-pulse i { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%; border: 2.5px solid currentColor; opacity: 0; animation: pulse-ring 0.5s ease-out forwards; }
+.answer-pulse b, .answer-pulse small { position: absolute; left: 0; transform: translateX(-50%); white-space: nowrap; font-family: 'Space Grotesk', sans-serif; font-weight: 700; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8); opacity: 0; animation: pulse-label 0.6s ease-out forwards; }
 .answer-pulse b { top: -40px; font-size: 20px; }
 .answer-pulse small { top: -18px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
 .answer-pulse.good { color: var(--good); }
 .answer-pulse.bad { color: var(--bad); }
-.answer-pulse.bad b { top: -12px; font-size: 22px; animation-name: pulse-x; }
+.answer-pulse.bad i { animation-duration: 0.6s; }
+.answer-pulse.bad b { top: -12px; font-size: 20px; opacity: 0.9; animation-name: pulse-x; animation-duration: 0.65s; }
 @keyframes pulse-ring { 0% { opacity: 1; transform: scale(0.4); } 100% { opacity: 0; transform: scale(1.8); } }
 @keyframes pulse-label { 0% { opacity: 0; transform: translate(-50%, 6px); } 20% { opacity: 1; transform: translate(-50%, 0); } 70% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -12px); } }
 @keyframes pulse-x { 0% { opacity: 0; transform: translateX(-50%) scale(1.5); } 20% { opacity: 1; transform: translateX(-50%) scale(1); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) scale(0.9); } }
@@ -292,6 +293,12 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 .sprint-score .breakdown { flex-basis: 100%; }
 .breakdown b { color: var(--ink-2); font-weight: 700; }
 .breakdown .bonus b { color: var(--gold); }
+.sound-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.sound-row .btn { display: inline-flex; align-items: center; gap: 6px; }
+.sound-row .btn svg { width: 15px; height: 15px; }
+.sound-row .btn.on { border-color: rgba(110, 170, 255, 0.55); }
+.sound-row input { flex: 1; accent-color: var(--accent); }
+.sound-row input:disabled { opacity: 0.4; }
 .earlier { border-left: 2px solid var(--panel-line-strong); padding-left: 8px; }
 
 .hover-name { position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%); padding: 7px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; pointer-events: none; display: flex; align-items: center; gap: 8px; }
