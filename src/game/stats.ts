@@ -2,13 +2,13 @@
 // All-time totals count every completed run in every challenge; records compare runs of one challenge (same area,
 // country set, mode, kind and challenge version) only.
 import { AREAS, type Area, type CountrySet } from '../data/countries.ts';
-import { countryChallenge, sprintChallenge, type ChallengeKind, type GameMode } from './challenges.ts';
+import { GAME_MODES, countryChallenge, sprintChallenge, type ChallengeKind, type GameMode } from './challenges.ts';
 import { countriesIn, perfKey, totalsOf, type Performance, type PerformanceStore, type RunSummary } from './records.ts';
 
 export type ChallengeRef = { area: Area; set: CountrySet; mode: GameMode; kind: ChallengeKind; id: string; key: string };
 
 // Every challenge the game offers, with the storage key of its current version.
-export const CATALOG: ChallengeRef[] = AREAS.flatMap(area => (['200', '195'] as const).flatMap(set => (['find', 'name'] as const).flatMap(mode =>
+export const CATALOG: ChallengeRef[] = AREAS.flatMap(area => (['200', '195'] as const).flatMap(set => GAME_MODES.flatMap(mode =>
   (['sprint', 'full'] as const).map(kind => {
     const c = kind === 'sprint' ? sprintChallenge(area, set, mode) : countryChallenge(area, set, mode);
     return { area, set, mode, kind, id: c.id, key: perfKey(c) };

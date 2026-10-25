@@ -3,13 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 import { flagUrl } from '../data/flags';
 
 // A country's flag. Until the image has loaded, and for good if it fails, the box shows the country's code instead of an
-// empty rectangle. Decorative: the country's name always sits beside it.
-export function Flag({ iso2, size }: { iso2?: string; size?: 'lg' }) {
+// empty rectangle. Decorative: the country's name always sits beside it. `quiz` (Flags mode, where the flag is the
+// question) never shows the code, which would give the answer away: the box stays blank until the image arrives.
+export function Flag({ iso2, size, quiz }: { iso2?: string; size?: 'lg' | 'xl'; quiz?: boolean }) {
   const [state, setState] = useState<'loading' | 'ok' | 'failed'>('loading');
   useEffect(() => setState('loading'), [iso2]);
   if (!iso2) return null;
   return <span className={`flag${size ? ` ${size}` : ''}${state === 'ok' ? '' : ' fallback'}`} aria-hidden="true">
-    <b>{iso2.toUpperCase()}</b>
+    {!quiz && <b>{iso2.toUpperCase()}</b>}
     {state !== 'failed' && <img src={flagUrl(iso2)} alt="" draggable={false} onLoad={() => setState('ok')} onError={() => setState('failed')} />}
   </span>;
 }

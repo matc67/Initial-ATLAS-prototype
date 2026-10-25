@@ -10,6 +10,7 @@ import { Flag, Icon } from './components/ui';
 import { AMERICAS, AREA_CAMERA, SET_LABEL, STATUS_LABEL, TABS, inArea, inSet, indexCountries, tabOf, type Area, type Country, type CountrySet } from './data/countries';
 import type { LngLat } from './game/geo';
 import { preloadFlags } from './data/flags';
+import { isFlagTwin } from './game/flagQuiz';
 import { capitalsOf, loadPlaces, lngLat, type City, type PlacesFile } from './data/places';
 import { SPRINT_SIZE, countryChallenge, sprintChallenge, subdivisionChallenge, subdivisionKinds, type ChallengeKind, type GameMode, type GeographyChallenge } from './game/challenges';
 import type { Playable } from './game/playable';
@@ -83,6 +84,13 @@ const SET_KEY = 'atlas-country-set';
 const loadSet = (): CountrySet => { try { return localStorage.getItem(SET_KEY) === '195' ? '195' : '200'; } catch { return '200'; } };
 const pct = (n: number | null) => (n === null ? '–' : `${Math.round(n)}%`);
 // How one country went in a recorded run, as a Progress globe status.
+// Each country mode's name and one-line rule, on the Play screen and in the results.
+const MODE_LABEL: { [M in Mode]: string } = { find: 'Find it', name: 'Name it', flag: 'Flags' };
+const MODE_HINT: { [M in Mode]: string } = {
+  find: 'We name a country; you click it on the globe.',
+  name: 'A country lights up in gold; you type its name.',
+  flag: 'We show a flag; you click its country on the globe.',
+};
 const runStatus = (a: Attempt): 'first' | 'retry' | 'hinted' => (a.hint ? 'hinted' : a.mistakes ? 'retry' : 'first');
 
 export default function App() {
@@ -444,7 +452,7 @@ export default function App() {
       mysteryGuess(id, 'click');
       return;
     }
-    if (!g || g.mode !== 'find' || g.round.phase !== 'asking' || isPaused(g.round)) return;
+    if (!g || g.mode === 'name' || g.round.phase !== 'asking' || isPaused(g.round)) return;
     // A subdivision round: its units take clicks through subPick; anything else is outside it, never a mistake.
     if (g.sub) {
       const country = countries.get(g.sub.countryId)!;
@@ -457,6 +465,8 @@ export default function App() {
     const clicked = countries.get(id)!;
     if (!inArea(clicked, g.area)) { commit({ ...g, message: FEEDBACK.outsideArea(areaTitle(g.area)), miss: null }); return; }
     if (!inSet(clicked, g.set)) { commit({ ...g, message: FEEDBACK.notInSet, miss: null }); return; }
+    // Flags: the country whose flag looks the same as the one shown is a fair reading of it, never a mistake.
+    if (g.mode === 'flag' && isFlagTwin(targetOf(g.round) ?? '', id) && !g.round.answers.some(a => a.id === id)) { commit({ ...g, message: FEEDBACK.sameFlag, miss: null }); return; }
     clickGuess(g, id, at);
   };
 
@@ -466,7 +476,8 @@ export default function App() {
     const event = answerEvent(g.round, r, outcome);
     if (!event) return;
     pulseAt(at, event);
-    if (event.kind === 'correct') { globeRef.current?.flash(id, FLASH_GOOD, 500); apply(g, r, '', { event }); return; }
+    // Flags names the country once it is found, so the player learns which flag was which.
+    if (event.kind === 'correct') { globeRef.current?.flash(id, FLASH_GOOD, 500); apply(g, r, g.mode === 'flag' ? `✓ That was ${g.places.get(id)?.name ?? ''}.` : '', { event }); return; }
     // The wrong place is recorded by id for scoring and the results review, flashes red briefly, and stays unnamed.
     globeRef.current?.flash(id, FLASH_BAD, WRONG_FLASH_MS);
     apply(g, r, '', { event, lost: event.lostStreak, miss: '' });
@@ -492,7 +503,7 @@ export default function App() {
     const g = gameRef.current, t = g && g.places.get(targetOf(g.round) ?? '');
     if (!g || !t) return;
     apply(g, revealRound(g.round, performance.now()), 'The answer is shown in gold.', { lost: g.round.streak });
-    if (g.mode === 'find') lookAtTarget(t);
+    if (g.mode !== 'name') lookAtTarget(t);
   }
 
   function next() {
@@ -715,6 +726,7 @@ export default function App() {
   const scopeName = (g: Game) => (g.sub ? countries.get(g.sub.countryId)?.name ?? g.sub.countryId : areaShort(g.area));
   const unitWord = (g: Game) => (g.sub ? g.sub.meta.terms.singular : 'country');
   const unitsWord = (g: Game) => (g.sub ? g.sub.meta.terms.plural : 'countries');
+  const modeLabel = (g: Game) => (g.sub ? (g.mode === 'find' ? 'Find the Region' : 'Name the Region') : MODE_LABEL[g.mode]);
 
   const answerBar = inRound && game?.mode === 'name' && round?.phase === 'asking' && !game.held;
   // Mystery Country on screen: its numbers, the countries it can take as guesses, and the record for the chosen set.
@@ -820,22 +832,22 @@ export default function App() {
         <div className="segmented" role="radiogroup" aria-label="Game mode">
           <button role="radio" aria-checked={mode === 'find'} className={mode === 'find' ? 'on' : ''} onClick={() => setMode('find')}>Find it</button>
           <button role="radio" aria-checked={mode === 'name'} className={mode === 'name' ? 'on' : ''} onClick={() => setMode('name')}>Name it</button>
-          <button disabled title="Coming next">Complete <em>soon</em></button>
+          <button role="radio" aria-checked={mode === 'flag'} className={mode === 'flag' ? 'on' : ''} onClick={() => setMode('flag')}>Flags</button>
         </div>
-        <p className="muted">{mode === 'find' ? 'We name a country; you click it on the globe.' : 'A country lights up in gold; you type its name.'} Get it first try for {ATTEMPT_POINTS[0]} points, and 3, 5 or 10 in a row for a streak bonus. Every mistake costs points and breaks your streak.</p>
+        <p className="muted">{MODE_HINT[mode]} Get it first try for {ATTEMPT_POINTS[0]} points, and 3, 5 or 10 in a row for a streak bonus. Every mistake costs points and breaks your streak.</p>
         <ChallengePicker area={areaShort(area)} loading={loading} poolSize={playIds.length}
           sprintBest={sprintRecord} fullBest={record} onSprint={() => startRound({ kind: 'sprint' })} onFull={() => startRound()}
           mysteryBest={mysteryRecord} mysterySize={mEntries.length} onMystery={() => startMystery()} />
       </>}
 
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'sprint' && <SprintResults
-        area={scopeName(game)} modeLabel={game.sub ? (game.mode === 'find' ? 'Find the Region' : 'Name the Region') : game.mode === 'find' ? 'Find it' : 'Name it'} stats={stats} answers={round.answers}
+        area={scopeName(game)} modeLabel={modeLabel(game)} stats={stats} answers={round.answers}
         before={game.before} bests={game.bests} countries={game.places} nameOf={nameOf}
         onPlayAgain={playAgain} onChange={leaveRound}
         heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} changeLabel={game.sub ? `Back to ${scopeName(game)}` : undefined} />}
 
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'full' && <>
-        <div className="eyebrow">{scopeName(game)} Challenge Complete · {stats.total} {unitsWord(game).replace(/^./, ch => ch.toUpperCase())} · {game.sub ? (game.mode === 'find' ? 'Find the Region' : 'Name the Region') : game.mode === 'find' ? 'Find it' : 'Name it'}</div>
+        <div className="eyebrow">{scopeName(game)} Challenge Complete · {stats.total} {unitsWord(game).replace(/^./, ch => ch.toUpperCase())} · {modeLabel(game)}</div>
         {stats.perfect && <div className="perfect">Perfect run · {stats.score.toLocaleString()}<span>Every {unitWord(game)} first try, the maximum score. No mistakes, no hints.</span></div>}
         {isNewRecord(game.before, game.bests) && <div className="record"><Burst />New personal best<span>Your best {scopeName(game)} Challenge run yet.</span></div>}
         <div className="headline">

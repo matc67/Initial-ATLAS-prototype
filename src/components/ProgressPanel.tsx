@@ -15,7 +15,7 @@ import { Flag, Icon } from './ui';
 const pct = (n: number | null) => (n === null ? '–' : `${Math.round(n)}%`);
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 const areaName = (a: Area) => (a === 'World' ? 'World' : a);
-const modeName = (m: GameMode) => (m === 'find' ? 'Find it' : 'Name it');
+const modeName = (m: GameMode) => ({ find: 'Find it', name: 'Name it', flag: 'Flags' })[m];
 // Wrong guesses grouped in first-seen order: ['BOL', 'PER', 'BOL'] → [['BOL', 2], ['PER', 1]].
 const wrongList = (ids: string[]) => [...ids.reduce((m, id) => m.set(id, (m.get(id) ?? 0) + 1), new Map<string, number>())];
 
@@ -73,7 +73,7 @@ export default function ProgressPanel(p: ProgressProps) {
     {tab === 'regions' ? <RegionsProgress {...p} /> : tab === 'mystery' ? <MysteryProgress {...p} /> : tab === 'records' ? <>
       <div className="filters">
         <Toggle label="Challenge" value={p.kind} options={[['sprint', 'Sprint'], ['full', 'Full']]} onChange={p.onKind} />
-        <Toggle label="Mode" value={p.mode} options={[['find', 'Find'], ['name', 'Name']]} onChange={p.onMode} />
+        <Toggle label="Mode" value={p.mode} options={[['find', 'Find'], ['name', 'Name'], ['flag', 'Flags']]} onChange={p.onMode} />
         <Toggle label="Countries" value={p.set} options={[['200', '200'], ['195', '195']]} onChange={p.onSet} />
       </div>
       <ul className="record-list" aria-label="Records by area">

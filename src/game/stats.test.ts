@@ -24,7 +24,7 @@ store = play(store, europeSprint, run(europeSprint, ten(1), 50_000, 22));   // 9
 store = play(store, oceaniaFull, run(oceaniaFull, Array.from({ length: 14 }, (_, i) => (i < 4 ? miss(`O${i}`) : hit(`O${i}`))), 90_000, 23));
 
 test('the catalog covers every area, set, mode and kind once, with distinct keys', () => {
-  assert.equal(CATALOG.length, 8 * 2 * 2 * 2);
+  assert.equal(CATALOG.length, 8 * 2 * 3 * 2);   // areas × sets × modes (Find it, Name it, Flags) × kinds
   assert.equal(new Set(CATALOG.map(c => c.key)).size, CATALOG.length);
 });
 

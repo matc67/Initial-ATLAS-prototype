@@ -177,6 +177,9 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 .flag.fallback b { visibility: visible; }
 .flag.lg b { font-size: 12px; }
 .flag.lg { width: 44px; height: 33px; border-radius: 5px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2), 0 4px 12px rgba(0, 0, 0, 0.35); }
+/* Flags mode: the flag is the question, so it is the HUD's focal point. */
+.flag.xl { width: 96px; height: 72px; border-radius: 7px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22), 0 6px 18px rgba(0, 0, 0, 0.4); }
+.flag-question .verb { max-width: 13em; line-height: 1.5; }
 
 /* Gameplay HUD: top centre and compact, the target's name is the focal point. */
 .hud { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: min(540px, calc(100vw - 220px)); padding: 10px 16px; border-radius: 16px; display: grid; gap: 6px; animation: drop-in 0.25s ease-out; }
@@ -532,6 +535,7 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
   .hud-name h2 { font-size: 22px; }
   .hud-top { flex-wrap: wrap; }
   .flag.lg { width: 36px; height: 27px; }
+  .flag.xl { width: 72px; height: 54px; }
   .hud-line { flex-wrap: wrap; }
   .answer-bar { bottom: 84px; }
   .hover-name, .credits, .ocean-label { display: none; }

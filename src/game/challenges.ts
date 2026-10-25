@@ -9,7 +9,11 @@ import { SCORING_VERSION } from './scoring.ts';
 // `map-click`: a polygon (or a ring for tiny countries) is clicked on the globe. `text-entry`: the answer is typed.
 // Future city challenges add `point-click`, a click within a tolerance of a city's coordinates (see docs/geography.md).
 export type Interaction = 'map-click' | 'text-entry';
-export type GameMode = 'find' | 'name';
+// `find`: a country is named; the player clicks it. `name`: a country lights up; the player types its name. `flag`: a
+// flag is shown; the player clicks its country (countries only: regions have no flags in ATLAS).
+export type GameMode = 'find' | 'name' | 'flag';
+export const GAME_MODES: GameMode[] = ['find', 'name', 'flag'];
+export const interactionOf = (mode: GameMode): Interaction => (mode === 'name' ? 'text-entry' : 'map-click');
 
 // `full`: every target, in random order. `sprint`: SPRINT_SIZE targets drawn at random from the pool for each run.
 export type ChallengeKind = 'full' | 'sprint';
@@ -53,9 +57,9 @@ export const countryIds = (area: Area, set: CountrySet) => ROSTER.filter(r => in
 export function countryChallenge(area: Area, set: CountrySet, mode: GameMode, ids = countryIds(area, set)): GeographyChallenge {
   return {
     id: `${slug(area)}-countries${set === '195' ? '-classic' : ''}-${mode}`,
-    name: `${area === 'World' ? 'World' : area} countries`, kind: 'full', size: ids.length,
+    name: `${area === 'World' ? 'World' : area} ${mode === 'flag' ? 'flags' : 'countries'}`, kind: 'full', size: ids.length,
     entityType: 'country', scopeId: SCOPE[area],
-    interaction: mode === 'find' ? 'map-click' : 'text-entry',
+    interaction: interactionOf(mode),
     targetIds: ids, version: scoredVersion(versionOf(ids)), earlierVersion: versionOf(ids),
   };
 }
@@ -95,7 +99,7 @@ export function subdivisionChallenge(countryId: string, name: string, mode: Game
     name: kind === 'sprint' ? `${name} Sprint` : name,
     kind, size: kind === 'sprint' ? SPRINT_SIZE : ids.length,
     entityType: 'admin1', scopeId: `country:${countryId}`,
-    interaction: mode === 'find' ? 'map-click' : 'text-entry',
+    interaction: interactionOf(mode),
     targetIds: ids,
     version: scoredVersion(kind === 'sprint' ? `s${SPRINT_SIZE}-${list}` : list),
     earlierVersion: kind === 'sprint' ? `s${SPRINT_SIZE}-${list}` : list,

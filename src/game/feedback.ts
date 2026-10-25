@@ -11,6 +11,8 @@ export const FEEDBACK = {
   notInSet: 'That country is not part of the Classic 195.',
   // Several tiny countries sit under the pointer: the map zooms in so the player can choose. Never a mistake.
   tooClose: 'Too close to call. Zoomed in so you can choose.',
+  // Flags: the clicked country flies a flag that looks the same as the one shown (game/flagQuiz.ts). Never a mistake.
+  sameFlag: 'That country’s flag looks just like this one. Find the other country that flies it.',
   // Subdivision rounds: the scope is the country played and its own terms ("province or territory"). The clicked place
   // is never named: these take only the round's own country and terms.
   units: {
