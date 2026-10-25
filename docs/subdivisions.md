@@ -2,7 +2,7 @@
 
 First-level administrative divisions (states, provinces, territories, prefectures, regions…) for every country, played through the same globe, game engine and records as countries. This document records the decisions taken, how the data is built, and the staged plan. It supersedes the subdivision parts of [geography.md](geography.md).
 
-**Status:** Phases 2 and 3 are approved. Phase 4 (Explore integration and Progress) is built and awaiting review: players can now open a country's regions in Explore and play Find the Region and Name the Region. Canada is the only country with region data so far.
+**Status:** Phases 2–4 are built. Phase 5 (the United States, and the onboarding process for the next country) is built and awaiting review. Canada and the United States have region data; Phase 6 (worldwide) has not started.
 
 ## Decisions
 
@@ -84,11 +84,13 @@ type SubdivisionIndex = {
   countries: { [countryId: string]: {
     enabled: boolean;
     file: string;                        // "admin1/CAN.topo.json"
-    count: number;
+    count: number;                       // playable units: the challenges' size
+    unitsVersion: string;                // fingerprint of the playable unit ids: record keys use it
     kinds: { [kind: string]: number };   // { Province: 10, Territory: 3 }
     terms: AdminTerms;                   // singular/plural, plus each kind's
     bounds: [west, south, east, north];  // east > 180 when the country crosses 180°
     flags: string[];                     // review notes from the build
+    others?: { id; name; kind; note }[]; // units drawn but not played (Washington, DC)
   } };
 };
 ```
@@ -109,6 +111,8 @@ type SubdivisionProps = {
   frame: { center: [lng, lat]; radiusKm: number };   // where to look to see the whole unit
   color: number;       // 1–7, never shared with a neighbour
   src: { ne: number[]; iso?: string; wikidata?: string };
+  playable?: false;    // drawn and named, never asked (Washington, DC); with a `note` saying why
+  note?: string;
 };
 ```
 
@@ -141,9 +145,10 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 
 | Case | Handling |
 |---|---|
+| Remote parts (Alaska, Hawaii) | Every part stays in its unit and is clickable. Framing ignores specks: a unit is framed by the parts holding 99% of its land (`CORE_SHARE`), so Hawaii is framed on its main islands, not stretched 1,600 km to Laysan; the country is framed by every unit's core, so Alaska and Hawaii are in view with the 48 states. |
 | Multipolygons and islands | A unit is one feature however many parts it has (Nunavut has over 200 islands). Islands under 3,000 km² get coastline traces, so even islets smaller than a pixel show and take clicks. |
 | 180° | Bounds by largest longitude gap; seam cuts are removed from borders by the existing `borderRuns`; distances use unit vectors (as in Mystery Country). Chukotka and Fiji's Northern Division touch 180° in the source. |
-| Very small subdivisions | Decided in screen pixels at the country's framing, not km². Below the threshold a unit needs a ring marker and the existing `resolvePick` rules; that is built when the first such country is added (Washington, DC, Berlin, Bremen, Basel-Stadt). Canada needs none on desktop (Prince Edward Island, the smallest at 5,700 km², is clickable at the default framing). On a phone, all of Canada fits only at zoom 1, where PEI is about one pixel; the tap reach over water and pinch-zoom cover it, and Phase 3 should reconsider rings for units under about 4 px at the framing zoom. |
+| Very small subdivisions | Decided in screen pixels at the country's framing, not km². Handled by `resolveSubPick` (Phase 3): a tap that could mean a unit under 10 px is too close to call and zooms in. Rhode Island and Delaware use it on a phone; no ring markers have been needed. Washington, DC is drawn but not played (Phase 5). Canada needs none on desktop (Prince Edward Island, the smallest at 5,700 km², is clickable at the default framing). On a phone, all of Canada fits only at zoom 1, where PEI is about one pixel; the tap reach over water and pinch-zoom cover it, and Phase 3 should reconsider rings for units under about 4 px at the framing zoom. |
 | Disputed land | Units are clipped to the ATLAS country shape. Land outside it is measured and flagged, never moved silently. See below. |
 | Different administrative systems | Each unit's `kind` and each country's `terms` come from the profile, so titles read "10 provinces and 3 territories", never a guessed "states". |
 | Names and diacritics | The existing `normalize` folds case, accents and punctuation ("Quebec" = "Québec"). A test checks that no name or alias matches two units of the same country. |
@@ -209,6 +214,34 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 - Progress lists only records of the current unit list and scoring version; older ones are kept but not shown.
 - The Progress "Your stats · all time" summary covers countries only, by design; regions have their own section.
 
+## United States (Phase 5)
+
+**What is played: the 50 states.** `admin1:USA:<USPS code>` (`AL` … `WY`), kind State, from Natural Earth's 51 USA rows. The profile declares `expect: { State: 50 }`, so the build stops if a state is missing or an extra one is played.
+
+**Policy for Washington, DC and the territories** (in the profile's `notes`; nothing is mixed in silently):
+
+| Place | In Natural Earth | In ATLAS |
+|---|---|---|
+| Washington, DC | A USA row, US-DC, "Federal District" | **Drawn and named, never asked.** A unit with `playable: false` and a note: it keeps its own 162 km² (never merged into Maryland), is listed in Explore under "Also on the map, not played", and looks like land outside the game during a round. Clicking it in a round is a neutral note, "That is not one of the 50 states in this game.", never a mistake and never named. Typing "Washington, DC" is an ordinary wrong answer; "Washington" is the state. |
+| Puerto Rico | Its own entity (PRI) | One of the 200 countries in ATLAS, played as a country. Not part of the United States' regions. |
+| Guam, US Virgin Islands, American Samoa, Northern Mariana Islands, US Minor Outlying Islands | Their own entities (GUM, VIR, ASM, MNP, UMI) | Outside the United States' country shape: shown on the globe as territories of the United States (Explore explains this), not playable and not regions. |
+
+The same `playable: false` mechanism serves any country with a unit that is mapped but not one of the set being played (a capital district, an unorganised area). Such a unit needs a `note`; the index lists it under `others`, and its `count`, `kinds` and `unitsVersion` cover the playable units only, so the challenges and their record keys never include it.
+
+**Geometry.** 50 states and DC, 305 KB (100 KB gzipped), built in about 75 s with no review flags: coverage of the country map within 0.05%, no holes or overlaps, every border sampled 1 km either side. Alaska (181 parts, across 180° at Attu) and Hawaii (14 parts, out to Laysan Island) are single units; every part is clickable.
+
+**Framing.** The country bounds cross 180° (the western Aleutians), handled by `boundsOf`; Find the Region opens with every state's label on screen, on desktop and on a phone (checked in the browser). Name the Region frames each state by its core (see Edge cases). On a phone the smallest states are a few pixels at the opening view; the too-close-to-call zoom covers them.
+
+**Wording.** Country names take "the" in a sentence where English does (`inSentence` in `data/roster.ts`: "50 states in the United States", "Back to the United States", "That is outside the United States."). Titles keep the bare name.
+
+**Phase 5 results** (2026-10-25): typecheck, 162 tests and the production build pass. Rebuilt with `npm run admin1`, Canada's geometry, ids and unit-list fingerprint are unchanged, so its records keys are too; only the framing of five units moved slightly with core-part framing (New Brunswick 237 → 216 km, Northwest Territories 1,316 → 1,271 km, Nunavut 1,841 → 1,785 km, Nova Scotia and Newfoundland and Labrador by a few km). In the browser on desktop and on a phone with touch: nothing loads at startup, the index on opening the United States and `USA.topo.json` on showing its states; Find the Region over all 50 and as a Sprint, Name the Region over all 50, each with a deliberate wrong answer and Show me; DC selected in Explore with its note, and clicked in a round with the neutral note and no mistake; records under `usa-admin1-*`, country records unchanged; "Back to the United States"; Progress → Regions lists Canada and the United States. Canada's Find the Region (all 13) and Name the Region Sprint, and the country Find it and Name it rounds, still pass.
+
+**Known limitations of Phase 5**
+
+- On a phone, the whole United States fits only when the 48 states are small; Rhode Island, Delaware and the Northeast need the zoom assist or a pinch.
+- The games are still called Find the Region and Name the Region for every country (their descriptions use the country's own word: "We name a state; you click it.").
+- Two-letter postal codes ("NY") are deliberately not accepted as typed answers.
+
 ## Challenges (Phase 3 onwards)
 
 - Ids like `can-admin1-find` and `can-admin1-sprint-name`, with `entityType: 'admin1'` and `scopeId: 'country:CAN'`. The version comes from the target ids, as for countries, so records are only compared between identical lists.
@@ -223,7 +256,7 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 | 2 (built) | Data pipeline; Canada profile; generic subdivision layer; development-only entry | 13 units, exact coast alignment, every unit selectable, existing modes unaffected, all checks pass |
 | 3 (built) | Gameplay: Find the Region and Name the Region on the shared engine; full and Sprint challenges; results | Canada playable end to end; country modes and records unchanged |
 | 4 (built) | Explore integration (the real entry point, return to Explore with the country selected) and Progress records per country, mode and challenge | Countries without data show a quiet "not available yet" state |
-| 5 | United States (50 states; a documented policy for Washington, DC and the territories, never silently mixed in); onboarding guide for the next country | A new country is data and configuration only |
+| 5 (built) | United States (50 states; a documented policy for Washington, DC and the territories, never silently mixed in); onboarding guide for the next country | A new country is data and configuration only |
 | 6 | Worldwide in reviewed batches (Brazil, Mexico, India, Germany, Japan, Australia, France, Nigeria first); coverage manifest | Each batch validated before the next |
 
 ## Canada acceptance (Phase 2) and results
@@ -243,9 +276,22 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 - Frame rates were measured only with software rendering in headless Chrome: opening the view and zooming are no slower than plain Explore there. Not yet measured on real phones.
 - The development entry (Explore button and `#subdivisions=CAN`) is temporary and appears in development builds only.
 
-## Adding a country (preliminary; finalised in Phase 5)
+## Adding a country
 
-1. Add a profile to `src/data/admin1Profiles.ts`: sources, grouping if the Natural Earth level is wrong, every unit with code, English name, kind, reviewed aliases; exclusions with reasons; `enabled: false`.
-2. Run `npm run admin1` and read the flags it prints.
-3. Add the country to the data tests (counts, kinds, named points that must land in the right unit).
-4. Review names, codes and any flags; then set `enabled: true`.
+A country is data and configuration: a profile, a build, and its tests. No game, map or Explore code changes. The United States was added this way, apart from two generic additions it was the first to need (units drawn but not played, and core-part framing), which now serve every country.
+
+1. **Check the source.** List the country's Natural Earth rows (`adm0_a3`) in `data-raw/…ne_10m_admin_1_states_provinces.geojson`: their `iso_3166_2`, `name`, `type_en`. Count them against an official source for the first-level divisions. Look for rows under other `adm0_a3` codes that belong to the country (see [Disputed and inconsistent areas](#disputed-and-inconsistent-areas)), and for rows below the first level (then use `groupBy`).
+2. **Write the profile** in `src/data/admin1Profiles.ts`:
+   - `sources`, `key` (`iso_3166_2` when clean and unique), and `groupBy` if needed.
+   - `terms`: the country's own words, singular and plural, with each kind ("province or territory"; "state" and "federal district").
+   - `units`: every row, with code (the ISO 3166-2 suffix), English name, kind, reviewed `aliases` (official names in other languages, well-established short forms; never historical names or bare abbreviations), and `abbrev`.
+   - `exclude`: rows left out entirely, each with a reason. For a unit that is drawn but not one of the set played, use `playable: false` with a `note` instead, so its land is never merged into a neighbour.
+   - `expect`: the playable count of each kind, from the official source.
+   - `notes`: any policy decision (what is not played, and why).
+   - `enabled: false` until reviewed.
+3. **Build:** `npm run admin1`. It stops on any profile error (a row not reviewed, a duplicate code or name, a missing note, a wrong count) and prints flags for any disagreement with the country map larger than 1 km² and 0.5% of a unit. Read every flag; resolve it in the profile or record it in this document. Never change `countries.topo.json` to make a flag go away.
+4. **Test:** `npm test`. `src/data/admin1Countries.test.ts` runs on every country in the index without changes: ids, counts, the index's fingerprint, names that match exactly one unit, coverage of the country map without holes or overlaps, every label point, both sides of every internal border, colours, framing, and the file size limit (512 KB). Then add a block of country checks there, as for the United States: the exact list of codes, places that must land in the right unit (islands, exclaves, remote parts and cities near borders), points either side of straight borders, any `playable: false` unit, and typed names.
+5. **Check in the browser** on desktop and on a phone: open the country in Explore, show its regions, play Find and Name the Region (a Sprint when it has 10 or more), check the opening view shows every unit and that tiny ones can be chosen, and that Progress → Regions lists it.
+6. **Review and enable:** names, codes, policy notes and flags reviewed, then `enabled: true` and rebuild. A disabled country is visible in development builds only.
+
+If a country needs something no profile option covers, add it to the profile format and the build generically (as `playable: false` was for Washington, DC), never as a case for one country in game or map code.

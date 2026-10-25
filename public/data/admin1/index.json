@@ -1,6 +1,6 @@
 {
-  "version": "8a0f5acbb450",
-  "builtAt": "2026-10-25T07:15:27.673Z",
+  "version": "de34e216792d",
+  "builtAt": "2026-10-25T15:33:26.981Z",
   "source": {
     "name": "Natural Earth Admin 1 States and Provinces 1:10m",
     "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
@@ -47,6 +47,51 @@
           62.393
         ],
         "radiusKm": 3229
+      },
+      "flags": []
+    },
+    "USA": {
+      "enabled": true,
+      "file": "admin1/USA.topo.json",
+      "count": 50,
+      "kinds": {
+        "State": 50
+      },
+      "terms": {
+        "singular": "state",
+        "plural": "states",
+        "kinds": [
+          {
+            "singular": "state",
+            "plural": "states"
+          },
+          {
+            "singular": "federal district",
+            "plural": "federal districts"
+          }
+        ]
+      },
+      "others": [
+        {
+          "id": "admin1:USA:DC",
+          "name": "District of Columbia",
+          "kind": "Federal district",
+          "note": "The federal district, home of the capital, Washington. It is not a state, so it is not one of the 50 states played here."
+        }
+      ],
+      "unitsVersion": "50-qmf24s",
+      "bounds": [
+        172.476,
+        18.906,
+        293.023,
+        71.412
+      ],
+      "frame": {
+        "center": [
+          -127.25,
+          45.159
+        ],
+        "radiusKm": 4717
       },
       "flags": []
     }

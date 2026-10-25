@@ -33,6 +33,10 @@ const KEEP_POINTS = 0.5;
 // these. The two coastlines are simplified separately, so every unit differs a little (up to ~0.05% for Canada's);
 // a real disagreement, such as a region on land the country map gives to another country, is far larger.
 const FLAG_KM2 = 1, FLAG_SHARE = 0.005;
+// Framing looks at the parts that make up this share of a unit's land, largest first, so a scatter of islets far away
+// (the Northwestern Hawaiian Islands, the western Aleutians) does not shrink the unit to a speck. They are still drawn
+// and clickable; only the camera ignores them.
+const CORE_SHARE = 0.99;
 
 type Shape = Feature<Polygon | MultiPolygon, Record<string, any>>;
 type Unit = { key: string; unit: Admin1Unit; rows: Shape[]; shape: Shape };
@@ -103,6 +107,16 @@ function colours(adj: number[][]): number[] {
   }
   return colour;
 }
+
+// The points of a shape's core: its parts, largest first, until they hold CORE_SHARE of its area.
+function corePoints(shape: Shape): LngLat[] {
+  const parts = turf.flatten(shape).features.map(f => ({ f, a: turf.area(f) })).sort((x, y) => y.a - x.a);
+  const total = parts.reduce((n, x) => n + x.a, 0), core: typeof parts = [];
+  let sum = 0;
+  for (const x of parts) { if (core.length && sum >= CORE_SHARE * total) break; core.push(x); sum += x.a; }
+  return core.flatMap(x => verticesOf(x.f.geometry));
+}
+const rounded = ({ center, radiusKm }: { center: LngLat; radiusKm: number }) => ({ center: center.map(x => +x.toFixed(3)), radiusKm: Math.round(radiusKm) });
 
 // A point on the unit's land for labels and flights: Natural Earth's label point when it is on the land, otherwise a
 // point on the largest part.
@@ -179,10 +193,11 @@ for (const p of PROFILES) {
     return turf.feature(shape.geometry, {
       id: `admin1:${p.country}:${u.unit.code}`, country: p.country, code: u.unit.code, name: u.unit.name, kind: u.unit.kind,
       aliases: u.unit.aliases ?? [], ...(u.unit.abbrev ? { abbrev: u.unit.abbrev } : {}),
+      ...(u.unit.playable === false ? { playable: false, note: u.unit.note } : {}),
       label: labelOf(shape, [Number(first.longitude), Number(first.latitude)]).map(x => +x.toFixed(4)),
       km2: Math.round(km2(shape)),
       // Where to look to see the whole unit (Name the Region flies to each one), valid across 180°.
-      frame: (({ center, radiusKm }) => ({ center: center.map(x => +x.toFixed(3)), radiusKm: Math.round(radiusKm) }))(frameOf(verticesOf(shape.geometry))),
+      frame: rounded(frameOf(corePoints(shape))),
       src: { ne: u.rows.map(r => Number(r.properties.ne_id)), ...(p.groupBy ? {} : { iso: first.iso_3166_2 }), ...(first.wikidataid && !p.groupBy ? { wikidata: first.wikidataid } : {}) },
     });
   });
@@ -195,18 +210,24 @@ for (const p of PROFILES) {
   writeFileSync(`public/data/${file}`, text);
   files.push(text);
 
-  const points = verticesOf(country.geometry);
+  // The country is framed by every unit's core, so each unit is in view (Hawaii and Alaska with the 48 states).
+  const points = finals.flatMap(corePoints);
+  // Counts, kinds and the fingerprint cover the playable units only: those are the challenges. Units on the map but not
+  // played (Washington, DC) are listed apart, with the reason.
   const kinds: Record<string, number> = {};
-  for (const u of units) kinds[u.unit.kind] = (kinds[u.unit.kind] ?? 0) + 1;
+  const played = units.filter(u => u.unit.playable !== false);
+  for (const u of played) kinds[u.unit.kind] = (kinds[u.unit.kind] ?? 0) + 1;
+  const others = features.filter(f => f.properties.playable === false).map(f => ({ id: f.properties.id, name: f.properties.name, kind: f.properties.kind, note: f.properties.note }));
   index[p.country] = {
-    enabled: p.enabled, file, count: units.length, kinds, terms: p.terms,
+    enabled: p.enabled, file, count: played.length, kinds, terms: p.terms,
+    ...(others.length ? { others } : {}),
     // The fingerprint of the unit list: challenge record keys are built from it (subdivisionKey), so Progress can show a
     // country's records without loading its file.
-    unitsVersion: versionOf(features.map(f => f.properties.id)),
-    bounds: boundsOf(points).map(x => +x.toFixed(3)), frame: (({ center, radiusKm }) => ({ center: center.map(x => +x.toFixed(3)), radiusKm: Math.round(radiusKm) }))(frameOf(points)),
+    unitsVersion: versionOf(features.filter(f => f.properties.playable !== false).map(f => f.properties.id)),
+    bounds: boundsOf(points).map(x => +x.toFixed(3)), frame: rounded(frameOf(points)),
     flags,
   };
-  console.log(`${p.country}: ${units.length} units, ${(text.length / 1024).toFixed(0)} KB, ${Math.round(unassigned).toLocaleString('en-US')} km² of coastline slivers assigned, ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  console.log(`${p.country}: ${played.length} units${others.length ? ` (+${others.length} not played)` : ''}, ${(text.length / 1024).toFixed(0)} KB, ${Math.round(unassigned).toLocaleString('en-US')} km² of coastline slivers assigned, ${((performance.now() - t0) / 1000).toFixed(1)} s`);
   for (const f of flags) console.log(`  flag: ${f}`);
 }
 

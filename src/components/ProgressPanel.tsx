@@ -10,6 +10,7 @@ import { averageGuesses, type MysteryRecord } from '../game/mysteryRecords';
 import { describeCount, type SubdivisionIndex } from '../data/subdivisions';
 import { hasRegions } from '../game/exploreNav';
 import { completedCount, regionRecords, statusOf } from '../game/regionRecords';
+import { inSentence } from '../data/roster';
 import { Flag, Icon } from './ui';
 
 const pct = (n: number | null) => (n === null ? '–' : `${Math.round(n)}%`);
@@ -171,7 +172,7 @@ function RegionsProgress(p: ProgressProps) {
             <span className="status">{statusOf(r)}</span>
           </li>)}
         </ul>
-        <button className="btn small" onClick={() => onOpen(id)}>Open {c?.name ?? id} in Explore</button>
+        <button className="btn small" onClick={() => onOpen(id)}>Open {c ? inSentence(c) : id} in Explore</button>
       </section>;
     })}
     <p className="fine">Region records are kept apart from country records, per country, game and length. More countries are on the way.</p>

@@ -2,7 +2,8 @@
 // the play actions they share. Every label comes from the country's own terms ("provinces and territories").
 import { useState } from 'react';
 import type { Country } from '../data/countries';
-import { describeCount, type SubdivisionMeta, type SubdivisionSet } from '../data/subdivisions';
+import { inSentence } from '../data/roster';
+import { describeCount, isPlayable, type SubdivisionMeta, type SubdivisionSet } from '../data/subdivisions';
 import { SPRINT_SIZE, subdivisionKinds, type ChallengeKind, type GameMode } from '../game/challenges';
 import type { PerformanceStore } from '../game/records';
 import { regionRecords, type RegionRecord } from '../game/regionRecords';
@@ -47,7 +48,7 @@ type BlockProps = { country: Country; meta: SubdivisionMeta | null; state: 'load
 // region data gets one quiet line instead of a broken or empty game.
 export function CountryRegions({ country, meta, state, records, onShow, onPlay }: BlockProps) {
   if (state === 'loading') return null;
-  if (state === 'unavailable' || !meta) return <p className="fine regions-unavailable">Regions of {country.name} are not available yet.</p>;
+  if (state === 'unavailable' || !meta) return <p className="fine regions-unavailable">Regions of {inSentence(country)} are not available yet.</p>;
   return <div className="country-regions">
     <div className="regions-head">
       <span className="eyebrow">{cap(meta.terms.plural)}</span>
@@ -75,25 +76,33 @@ type PanelProps = {
 // A country's regions view: the regions on the globe, names on hover or click, a list, and the games.
 export function RegionsPanel({ country, set, selected, onSelect, onBack, onWorld, records, onPlay }: PanelProps) {
   const unit = selected ? set.byId.get(selected) : undefined;
-  const units = [...set.units.features].sort((a, b) => a.properties.name.localeCompare(b.properties.name));
+  const sorted = [...set.units.features].sort((a, b) => a.properties.name.localeCompare(b.properties.name));
+  const units = sorted.filter(isPlayable), others = sorted.filter(u => !isPlayable(u));
+  const item = (u: typeof sorted[number]) => <li key={u.properties.id}>
+    <button className={u.properties.id === selected ? 'on' : ''} aria-pressed={u.properties.id === selected} onClick={() => onSelect(u.properties.id, true)}>
+      <span>{u.properties.name}</span><small>{u.properties.kind}</small>
+    </button>
+  </li>;
   return <div className="regions-panel">
     <div className="regions-nav">
       <button className="link back" onClick={onBack}><Icon name="arrow" />{country.name}</button>
       <button className="link" onClick={onWorld}>World view</button>
     </div>
     <h1 className="with-flag"><Flag iso2={country.iso2} size="lg" />{cap(set.meta.terms.plural)}</h1>
-    <p className="muted">{describeCount(set.meta)} in {country.name}. Hover or tap one to see its name.</p>
+    <p className="muted">{describeCount(set.meta)} in {inSentence(country)}. Hover or tap one to see its name.</p>
     {unit ? <div className="region-selected" aria-live="polite">
       <strong>{unit.properties.name}</strong><span>{unit.properties.kind}{unit.properties.aliases.length > 0 && ` · also ${unit.properties.aliases.join(', ')}`}</span>
+      {unit.properties.note && <span className="region-note">{unit.properties.note}</span>}
       {import.meta.env.DEV && <small><code>{unit.properties.id}</code>{unit.properties.src.iso && ` · ${unit.properties.src.iso}`} · {unit.properties.km2.toLocaleString()} km²</small>}
     </div> : null}
     <RegionPlay countryId={set.countryId} meta={set.meta} records={records} onPlay={onPlay} />
     <span className="eyebrow">All {set.meta.terms.plural}</span>
-    <ul className="sub-list" aria-label={cap(set.meta.terms.plural)}>{units.map(u => <li key={u.properties.id}>
-      <button className={u.properties.id === selected ? 'on' : ''} aria-pressed={u.properties.id === selected} onClick={() => onSelect(u.properties.id, true)}>
-        <span>{u.properties.name}</span><small>{u.properties.kind}</small>
-      </button>
-    </li>)}</ul>
+    <ul className="sub-list" aria-label={cap(set.meta.terms.plural)}>{units.map(item)}</ul>
+    {others.length > 0 && <>
+      <span className="eyebrow">Also on the map, not played</span>
+      <ul className="sub-list" aria-label="Also on the map">{others.map(item)}</ul>
+      <p className="fine">{others.map(u => u.properties.note).join(' ')}</p>
+    </>}
     {import.meta.env.DEV && set.meta.flags.length > 0 && <div className="fine">Build flags: {set.meta.flags.join(' · ')}</div>}
   </div>;
 }

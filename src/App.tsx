@@ -34,10 +34,10 @@ import {
   addMysteryRun, isMysteryRecord, loadActive, loadMysteryStore, loadRecent, mysteryChallenge, mysteryKey, saveActive,
   saveMysteryStore, saveRecent, toMysteryRun, type MysteryBests, type MysteryChallenge, type MysteryRecord, type MysteryRun,
 } from './game/mysteryRecords';
-import { ROSTER } from './data/roster';
+import { ROSTER, inSentence } from './data/roster';
 import { CountryRegions, RegionsPanel, RegionsShortcut } from './components/Regions';
 import { afterRound, backToCountry, clickCountry, clickNothing, hasRegions, openRegions, selectRegion, toWorld, type ExploreNav } from './game/exploreNav';
-import { loadSubdivisionIndex, loadSubdivisions, subdivisionPlayables, type SubdivisionIndex, type SubdivisionSet } from './data/subdivisions';
+import { loadSubdivisionIndex, loadSubdivisions, playableIds, subdivisionPlayables, type SubdivisionIndex, type SubdivisionSet } from './data/subdivisions';
 import { PACIFIC_VIEWS, type RegionView } from './map/regions';
 import { COLORS, GlobeView, type Camera, type Land, type StatusMap, type Theme } from './map/GlobeView';
 
@@ -301,7 +301,7 @@ export default function App() {
   // records are the country's own. Started from that country's Explore panel (docs/subdivisions.md).
   function startSubdivisionRound(countryId: string, m: Mode, kind: ChallengeKind) {
     loadSubdivisions(countryId).then(set => {
-      const country = countries.get(countryId), ids = set.units.features.map(u => u.properties.id);
+      const country = countries.get(countryId), ids = playableIds(set);
       if (!country || !subdivisionKinds(ids.length).includes(kind)) return;
       leaveMystery();
       const terms = set.meta.terms.plural;
@@ -382,6 +382,8 @@ export default function App() {
       if (inSubRound) commit({ ...g!, message: FEEDBACK.tooClose, miss: null });
       return;
     }
+    // A unit drawn but not played (Washington, DC) is a neutral note, as for land outside the game.
+    if (inSubRound && id && !g!.places.has(id)) { commit({ ...g!, message: FEEDBACK.units.notPlayed(g!.sub!.meta.count, g!.sub!.meta.terms.plural), miss: null }); return; }
     if (inSubRound && id) { clickGuess(g!, id, at); return; }
     if (view === 'explore') applyNav(selectRegion(nav, id));
   };
@@ -456,7 +458,7 @@ export default function App() {
     // A subdivision round: its units take clicks through subPick; anything else is outside it, never a mistake.
     if (g.sub) {
       const country = countries.get(g.sub.countryId)!;
-      commit({ ...g, message: id || land ? FEEDBACK.units.outside(country.name) : FEEDBACK.units.ocean(g.sub.meta.terms.singular), miss: null });
+      commit({ ...g, message: id || land ? FEEDBACK.units.outside(inSentence(country)) : FEEDBACK.units.ocean(g.sub.meta.terms.singular), miss: null });
       return;
     }
     // Clicks on the ocean, unplayable land, other areas or other country sets are explained but never count as mistakes,
@@ -724,6 +726,7 @@ export default function App() {
   const nameOf = (id: string) => (id.startsWith('typed:') ? `“${id.slice(6)}”` : game?.places.get(id)?.name ?? countries.get(id)?.name ?? id);
   // A subdivision round's labels: the country, and its own word for what is asked ("province or territory").
   const scopeName = (g: Game) => (g.sub ? countries.get(g.sub.countryId)?.name ?? g.sub.countryId : areaShort(g.area));
+  const backName = (g: Game) => { const c = g.sub && countries.get(g.sub.countryId); return c ? inSentence(c) : scopeName(g); };
   const unitWord = (g: Game) => (g.sub ? g.sub.meta.terms.singular : 'country');
   const unitsWord = (g: Game) => (g.sub ? g.sub.meta.terms.plural : 'countries');
   const modeLabel = (g: Game) => (g.sub ? (g.mode === 'find' ? 'Find the Region' : 'Name the Region') : MODE_LABEL[g.mode]);
@@ -844,7 +847,7 @@ export default function App() {
         area={scopeName(game)} modeLabel={modeLabel(game)} stats={stats} answers={round.answers}
         before={game.before} bests={game.bests} countries={game.places} nameOf={nameOf}
         onPlayAgain={playAgain} onChange={leaveRound}
-        heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} changeLabel={game.sub ? `Back to ${scopeName(game)}` : undefined} />}
+        heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} changeLabel={game.sub ? `Back to ${backName(game)}` : undefined} />}
 
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'full' && <>
         <div className="eyebrow">{scopeName(game)} Challenge Complete · {stats.total} {unitsWord(game).replace(/^./, ch => ch.toUpperCase())} · {modeLabel(game)}</div>
@@ -866,7 +869,7 @@ export default function App() {
         <ReviewList answers={round.answers} countries={game.places} nameOf={nameOf} heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} />
         <button className="btn primary" onClick={playAgain}>Play again</button>
         {!game.sub && <button className="btn" onClick={() => { setRunView('latest'); setView('progress'); }}>See this run in Progress</button>}
-        <button className="btn" onClick={leaveRound}>{game.sub ? `Back to ${scopeName(game)}` : 'Change challenge'}</button>
+        <button className="btn" onClick={leaveRound}>{game.sub ? `Back to ${backName(game)}` : 'Change challenge'}</button>
       </>}
 
       {view === 'explore' && subView && selectedCountry ? <RegionsPanel country={selectedCountry} set={subView.set} selected={subView.selected}

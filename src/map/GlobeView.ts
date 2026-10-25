@@ -90,7 +90,10 @@ const baseColor = ['match', status, 'selected', vivid, ['case', hovered, '#2a3d5
 // selected and hovered lift that Explore uses for inspecting units.
 const subFill = (theme: Theme): ExpressionSpecification => {
   const brighter = (t: number) => palette(COLORS.country.map(c => mix(c, '#ffffff', t)));
-  return ['case', selectedSub, brighter(0.3), ['all', ['==', status, ''], hovered, theme === 'explore'], brighter(0.14), activeColor(theme)] as unknown as ExpressionSpecification;
+  // A unit drawn but not played (Washington, DC) looks like land outside the game once a round or Progress is on screen.
+  const notPlayed = ['==', ['get', 'playable'], false];
+  return ['case', selectedSub, brighter(0.3), ['all', notPlayed, theme !== 'explore'], inactive,
+    ['all', ['==', status, ''], hovered, theme === 'explore'], brighter(0.14), activeColor(theme)] as unknown as ExpressionSpecification;
 };
 // Ring markers read like their country: active colour inside the region, neutral outside.
 const ringColor = (theme: Theme): ExpressionSpecification => ['case', dimmed, inactive, activeColor(theme)] as unknown as ExpressionSpecification;

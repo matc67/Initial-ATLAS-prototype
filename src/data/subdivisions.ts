@@ -10,13 +10,15 @@ import type { Playable } from '../game/playable';
 export type SubdivisionMeta = {
   enabled: boolean;
   file: string;
-  count: number;
+  count: number;                              // playable units: the challenges' size
   unitsVersion: string;                       // versionOf(unit ids): challenge record keys use it (subdivisionKey)
   kinds: { [kind: string]: number };
   terms: AdminTerms;
   bounds: [number, number, number, number];   // west, south, east, north; east > 180 across 180°
   frame: { center: LngLat; radiusKm: number };
   flags: string[];
+  // Units drawn and named but never asked (Washington, DC), with the reason. Missing when there are none.
+  others?: { id: string; name: string; kind: string; note: string }[];
 };
 export type SubdivisionIndex = {
   version: string; builtAt: string;
@@ -29,6 +31,8 @@ export type SubdivisionProps = {
   aliases: string[]; abbrev?: string; label: LngLat; km2: number; color: number;
   frame: { center: LngLat; radiusKm: number };
   src: { ne: number[]; iso?: string; wikidata?: string };
+  playable?: false;    // drawn and named, never asked in a challenge; `note` says why
+  note?: string;
 };
 export type Subdivision = GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon, SubdivisionProps>;
 export type SubdivisionSet = {
@@ -91,9 +95,13 @@ export function loadSubdivisions(countryId: string): Promise<SubdivisionSet> {
   return p;
 }
 
-// A country's subdivisions as round targets, by id.
+export const isPlayable = (u: Subdivision) => u.properties.playable !== false;
+// The ids a country's challenges ask, in file order: every unit except those drawn but not played.
+export const playableIds = (set: SubdivisionSet) => set.units.features.filter(isPlayable).map(u => u.properties.id);
+
+// A country's subdivisions as round targets, by id. Units that are not played are never targets.
 export function subdivisionPlayables(set: SubdivisionSet): Map<string, Playable> {
-  return new Map(set.units.features.map(u => [u.properties.id, {
+  return new Map(set.units.features.filter(isPlayable).map(u => [u.properties.id, {
     id: u.properties.id, name: u.properties.name, aliases: u.properties.aliases, center: u.properties.label, frame: u.properties.frame,
   }]));
 }

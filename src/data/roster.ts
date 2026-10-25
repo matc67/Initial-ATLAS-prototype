@@ -228,3 +228,8 @@ export const ROSTER: RosterEntry[] = [
 
 // The Classic 195 challenge: UN member and observer states only.
 export const isClassic = (r: RosterEntry) => r.status === 'un-member' || r.status === 'un-observer';
+
+// Countries whose name takes "the" in a sentence ("50 states in the United States", "Back to the Netherlands"). Titles
+// and lists use the bare name.
+const WITH_THE = new Set(['BHS', 'CAF', 'COD', 'COG', 'COM', 'DOM', 'GBR', 'GMB', 'MDV', 'MHL', 'NLD', 'PHL', 'SLB', 'ARE', 'USA']);
+export const inSentence = (r: { id: string; name: string }) => (WITH_THE.has(r.id) ? `the ${r.name}` : r.name);

@@ -1,4 +1,4 @@
-// Phase 4: Explore navigation for regions, and region records for Explore and Progress.
+// Phase 4: Explore navigation for regions, and region records for Explore and Progress. Phase 5: the United States.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -6,9 +6,11 @@ import { subdivisionChallenge, subdivisionKey, versionOf } from './challenges.ts
 import { afterRound, backToCountry, clickCountry, clickNothing, hasRegions, openRegions, selectRegion, toWorld, WORLD } from './exploreNav.ts';
 import { addRun, perfKey, toGameRun } from './records.ts';
 import { completedCount, regionRecords, statusOf } from './regionRecords.ts';
-import { guess, newRound } from './scoring.ts';
+import { FEEDBACK } from './feedback.ts';
+import { nameMatches, normalize } from './names.ts';
+import { guess, maxScoreFor, newRound, statsOf } from './scoring.ts';
 import { CATALOG } from './stats.ts';
-import { decodeSubdivisions, type SubdivisionIndex } from '../data/subdivisions.ts';
+import { decodeSubdivisions, playableIds, subdivisionPlayables, type SubdivisionIndex } from '../data/subdivisions.ts';
 
 const read = (f: string) => JSON.parse(readFileSync(new URL(`../../public/data/${f}`, import.meta.url), 'utf8'));
 const index = read('admin1/index.json') as SubdivisionIndex;
@@ -88,4 +90,52 @@ test('region records: per country, mode and length, with best score, time, accur
 test('a country with fewer than 10 regions offers only the full challenges', () => {
   const rows = regionRecords({}, 'XYZ', { count: 7, unitsVersion: '7-abc' });
   assert.deepEqual(rows.map(x => [x.mode, x.kind, x.size]), [['find', 'full', 7], ['name', 'full', 7]]);
+});
+
+// ---- Phase 5: the United States on the same systems, from its data alone ----------------------------------------------
+const usa = decodeSubdivisions('USA', index.countries.USA, read(index.countries.USA.file));
+const usIds = playableIds(usa);
+
+test('United States: Find and Name the State, Sprint and all 50, with records apart from Canada and from countries', () => {
+  const rows = regionRecords({}, 'USA', index.countries.USA);
+  assert.deepEqual(rows.map(x => [x.mode, x.kind, x.size, x.maxScore]), [
+    ['find', 'sprint', 10, 1400], ['find', 'full', 50, maxScoreFor(50)], ['name', 'sprint', 10, 1400], ['name', 'full', 50, maxScoreFor(50)],
+  ]);
+  const canKeys = new Set(regionRecords({}, 'CAN', index.countries.CAN).map(x => x.key));
+  for (const x of rows) { assert.ok(!canKeys.has(x.key)); assert.ok(!CATALOG.some(c => c.key === x.key)); assert.match(x.key, /^usa-admin1-/); }
+  // The game builds the same keys as Progress, from the 50 states (never Washington, DC).
+  for (const mode of ['find', 'name'] as const) for (const kind of ['sprint', 'full'] as const) {
+    const c = subdivisionChallenge('USA', 'United States', mode, kind, usIds);
+    assert.equal(perfKey(c), subdivisionKey('USA', mode, kind, index.countries.USA.unitsVersion));
+    assert.ok(!c.targetIds.includes('admin1:USA:DC'));
+  }
+  assert.equal(usIds.length, 50);
+});
+
+test('United States: a perfect 50-state run, and typed names', () => {
+  let r = newRound(usIds, 0);
+  usIds.forEach((id, i) => { r = guess(r, id, (i + 1) * 1000).round; });
+  const s = statsOf(r, 50_000);
+  assert.deepEqual([s.score, s.maxScore, s.perfect], [maxScoreFor(50), maxScoreFor(50), true]);
+  const places = subdivisionPlayables(usa), p = (code: string) => places.get(`admin1:USA:${code}`)!;
+  for (const [code, typed] of [['NY', 'new york'], ['NY', 'New York State'], ['HI', 'Hawaiʻi'], ['HI', 'hawaii'], ['WA', 'Washington'], ['WV', 'west virginia'], ['MA', 'Commonwealth of Massachusetts']]) assert.ok(nameMatches(p(code), typed), typed);
+  // Two-letter postal codes are not names, and the federal district is never an answer.
+  for (const typed of ['NY', 'CA', 'Washington DC', 'District of Columbia', 'Puerto Rico', 'Virginia Beach']) assert.ok(![...places.values()].some(u => nameMatches(u, typed)), typed);
+});
+
+test('United States: the note for Washington, DC in a round names nothing', () => {
+  const note = FEEDBACK.units.notPlayed(index.countries.USA.count, index.countries.USA.terms.plural);
+  assert.equal(note, 'That is not one of the 50 states in this game.');
+  const names = usa.units.features.flatMap(u => [u.properties.name, ...u.properties.aliases]).map(normalize);
+  assert.ok(!names.some(n => ` ${normalize(note)} `.includes(` ${n} `)));
+});
+
+test('Explore navigation works the same for the United States, and between two countries with regions', () => {
+  const n = selectRegion(openRegions(WORLD, 'USA'), 'admin1:USA:HI');
+  assert.deepEqual(n, { country: 'USA', regions: { country: 'USA', unit: 'admin1:USA:HI' } });
+  // Washington, DC can be selected in Explore (it is named there), though it is never asked.
+  assert.equal(selectRegion(n, 'admin1:USA:DC').regions?.unit, 'admin1:USA:DC');
+  assert.deepEqual(clickCountry(n, 'CAN'), { country: 'CAN', regions: null });
+  assert.deepEqual(openRegions(clickCountry(n, 'CAN'), 'CAN'), afterRound('CAN'));
+  assert.equal(hasRegions(index, 'USA'), true);
 });

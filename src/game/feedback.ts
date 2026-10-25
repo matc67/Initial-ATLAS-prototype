@@ -18,6 +18,8 @@ export const FEEDBACK = {
   units: {
     ocean: (singular: string) => `That was the ocean. Click a ${singular}.`,
     outside: (countryName: string) => `That is outside ${countryName}.`,
+    // A unit drawn on the map but not played (Washington, DC among the 50 states). Not named either.
+    notPlayed: (count: number, plural: string) => `That is not one of the ${count} ${plural} in this game.`,
   },
 } as const;
 

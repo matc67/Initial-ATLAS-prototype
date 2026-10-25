@@ -53,3 +53,9 @@ test('every flag is the right country: its code names that country in flag-icons
   }).map(r => `${r.name} → ${r.iso2} (${byCode.get(r.iso2) ?? 'unknown code'})`);
   assert.deepEqual(wrong, []);
 });
+
+test('country names in a sentence take "the" where English does', async () => {
+  const { inSentence } = await import('./roster.ts');
+  const name = (id: string) => inSentence(ROSTER.find(r => r.id === id)!);
+  assert.deepEqual(['USA', 'NLD', 'PHL', 'CAN', 'FRA', 'GMB'].map(name), ['the United States', 'the Netherlands', 'the Philippines', 'Canada', 'France', 'the Gambia']);
+});
