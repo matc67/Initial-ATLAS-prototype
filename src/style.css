@@ -397,6 +397,58 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 .region-nav button.on { color: #fff; background: rgba(59, 130, 246, 0.28); box-shadow: inset 0 0 0 1px rgba(110, 170, 255, 0.5); }
 .region-nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* Mystery Country. Heat colours are the only red on the globe; the panels stay ATLAS navy. */
+.hud-spacer { flex: 1; }
+.mystery-hud .hud-area svg { color: #ff9aa4; }
+.hud-readouts.three { grid-template-columns: 0.8fr 1fr 1.7fr; }
+button.readout { font: inherit; color: inherit; text-align: left; cursor: default; }
+.readout.closest strong { gap: 6px; }
+.readout.closest strong.none { color: var(--ink-3); }
+.readout.closest small { position: absolute; right: 10px; top: 6px; max-width: 55%; font-size: 10.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swatch { flex: none; display: inline-block; width: 11px; height: 11px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25); background: var(--good); }
+.hud-msg.latest { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.hud-msg.latest b { color: var(--ink); }
+.hud-msg.latest em, .guess-list .tag { font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #ffb0b8; }
+/* Search: suggestions open above the bar, so they never cover the bar or the HUD. */
+.mystery-search { z-index: 3; }
+.mystery-search input:disabled { opacity: 0.5; }
+.suggestions { position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); margin: 0; padding: 4px; list-style: none; border-radius: 12px; background: var(--panel); border: 1px solid var(--panel-line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: var(--shadow); }
+.suggestions li { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.suggestions li.on { background: rgba(59, 130, 246, 0.24); }
+.suggestions .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestions .name small { color: var(--ink-3); }
+.suggestions .meta { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+.has-answer-bar .hover-name { bottom: 96px; }
+/* Guess history: a slim card on the right on desktop; on phones it opens from the Guesses readout. */
+.mystery-panel { width: 300px; padding: 14px; }
+.history-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.history-head .toggle { flex: none; width: 150px; }
+.guess-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.guess-list button { width: 100%; display: grid; grid-template-columns: 22px 12px 1fr auto; grid-template-areas: 'n s who km' '. . tag tag'; align-items: center; gap: 0 8px; padding: 6px 8px; border: 1px solid transparent; border-radius: 9px; background: rgba(255, 255, 255, 0.03); color: var(--ink); text-align: left; font-size: 13px; font-variant-numeric: tabular-nums; }
+.guess-list button:hover { background: rgba(255, 255, 255, 0.07); }
+.guess-list .n { grid-area: n; font-size: 11px; color: var(--ink-3); }
+.guess-list .swatch { grid-area: s; }
+.guess-list .who { grid-area: who; display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.guess-list .km { grid-area: km; font-weight: 600; color: var(--ink-2); }
+.guess-list .tag { grid-area: tag; font-size: 9.5px; }
+.guess-list li.latest button { border-color: rgba(255, 176, 184, 0.45); }
+.guess-list li.solved button { border-color: rgba(74, 222, 128, 0.55); background: rgba(74, 222, 128, 0.1); }
+.guess-list li.solved .km { color: var(--good); }
+/* Results. */
+.mystery-results { display: grid; gap: var(--gap); }
+.mystery-results .eyebrow { color: var(--good); }
+.mystery-results .eyebrow svg { width: 13px; height: 13px; vertical-align: -2px; }
+.solved-country { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 14px; border: 1px solid rgba(74, 222, 128, 0.45); background: rgba(74, 222, 128, 0.08); animation: record-in 0.35s ease-out; }
+.solved-country span { font-size: 11px; color: var(--ink-3); }
+.solved-country h1 { font-size: 24px; }
+.sprint-stats .wide { grid-column: 1 / -1; }
+.challenge.mystery .challenge-icon { color: #ff9aa4; background: rgba(255, 120, 135, 0.12); }
+.mystery-progress { display: grid; gap: 10px; }
+.with-flag { display: inline-flex; align-items: center; gap: 7px; }
+@media (max-width: 1180px) and (min-width: 761px) {
+  .mystery-hud { left: calc(50% - 170px); width: min(480px, calc(100vw - 480px)); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .gain, .record, .hud, .challenge, .readout strong, .readout i, .hud-flash, .hud-wrong, .streak-lost, .celebrate, .answer-pulse * { animation: none !important; transition: none !important; }
   /* Feedback still shows, just without movement: the flash and pulse are held briefly, then removed with their element. */
@@ -440,4 +492,16 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
   .region-nav button { min-height: 38px; padding: 8px 12px; }
   .has-answer-bar .region-nav { bottom: 140px; }
   .challenge { padding: 10px 12px; }
+  .in-mystery .zoom { top: 210px; }
+  .mystery-hud .hud-top { flex-wrap: nowrap; }
+  .mystery-hud .hud-area { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* The next mystery is always one tap away, however long the history below it. */
+  .mystery-results > .btn.primary { position: sticky; bottom: 0; z-index: 1; box-shadow: 0 -10px 18px rgba(8, 18, 36, 0.9); }
+  .mystery-panel { display: none; top: auto; bottom: 140px; width: auto; max-height: 40vh; }
+  .mystery-panel.open { display: flex; }
+  button.readout.guesses { cursor: pointer; }
+  button.readout.guesses::after { content: '▾'; position: absolute; right: 8px; top: 6px; font-size: 10px; color: var(--ink-3); }
+  .readout.closest small { display: none; }
+  .mystery-search { bottom: 84px; }
+  .history-head .toggle { width: 130px; }
 }

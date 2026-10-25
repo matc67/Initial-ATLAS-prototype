@@ -3,17 +3,21 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { feature } from 'topojson-client';
 import type { GeometryCollection, Topology } from 'topojson-specification';
 import { distanceKm, type LngLat } from '../game/geo';
+import { HEAT_STOPS } from '../game/mystery';
 import { isletsOf, outlinesOf } from './outlines';
 import { markerActive, reachFor, resolvePick, ringRadiusAt } from './pick';
 
 // Round states: `found` = completed this round, `answer` = shown after the last miss, `target` = the country to name.
 // Progress states, from one recorded run: `first` = correct first try, `retry` = needed more attempts, `hinted` = Show me.
-export type Status = 'target' | 'answer' | 'found' | 'missed' | 'selected' | 'first' | 'retry' | 'hinted';
+// Mystery Country: `heat` = a wrong guess, coloured by its `heat` feature-state (see setHeat); `solved` = the answer, once found.
+export type Status = 'target' | 'answer' | 'found' | 'missed' | 'selected' | 'first' | 'retry' | 'hinted' | 'heat' | 'solved';
 export type StatusMap = { [id: string]: Status };
 export type Camera = { center: LngLat; zoom: number };
 export type Padding = { left: number; right: number; top: number; bottom: number };
 // `explore`: every country in full colour. `play`: muted until found. `progress`: dark neutral unless the run attempted it.
-export type Theme = 'explore' | 'play' | 'progress';
+// `mystery`: one neutral blue-grey (two close tones, so neighbours stay readable) until guessed. No country colour can
+// be mistaken for heat, and the answer looks exactly like every other unguessed country.
+export type Theme = 'explore' | 'play' | 'progress' | 'mystery';
 
 const mix = (a: string, b: string, t: number) => {
   const p = (h: string) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -56,10 +60,16 @@ const status = ['coalesce', ['feature-state', 'status'], ''] as ExpressionSpecif
 const hovered = ['boolean', ['feature-state', 'hover'], false] as ExpressionSpecification;
 const dimmed = ['boolean', ['feature-state', 'dim'], false] as ExpressionSpecification;
 const focused = ['boolean', ['feature-state', 'focus'], false] as ExpressionSpecification;
+// Mystery Country heat, 0 (far) to 1 (touching), interpolated continuously through the same stops as heatColor().
+const heat = ['interpolate', ['linear'], ['coalesce', ['feature-state', 'heat'], 0], ...HEAT_STOPS.flat()] as unknown as ExpressionSpecification;
+const MYSTERY_LAND = ['#3a4a63', '#34435b'];
 
 // Colour of an active country (or its halo / ring) from its status, the theme and hover.
 function activeColor(theme: Theme): ExpressionSpecification {
-  const resting = theme === 'explore' ? vivid : theme === 'play' ? ['case', hovered, lifted, muted] : ['case', hovered, mix(COLORS.progress.none, '#ffffff', 0.12), COLORS.progress.none];
+  const mysteryLand = ['match', ['%', ['get', 'color'], 2], 0, MYSTERY_LAND[0], MYSTERY_LAND[1]];
+  const resting = theme === 'explore' ? vivid : theme === 'play' ? ['case', hovered, lifted, muted]
+    : theme === 'mystery' ? ['case', hovered, mix(MYSTERY_LAND[0], '#ffffff', 0.14), mysteryLand]
+    : ['case', hovered, mix(COLORS.progress.none, '#ffffff', 0.12), COLORS.progress.none];
   const lift = (c: string) => ['case', hovered, mix(c, '#ffffff', 0.15), c];
   return ['match', status,
     'found', COLORS.completed,
@@ -69,6 +79,8 @@ function activeColor(theme: Theme): ExpressionSpecification {
     'first', lift(COLORS.progress.first),
     'retry', lift(COLORS.progress.retry),
     'hinted', lift(COLORS.progress.hinted),
+    'heat', heat,
+    'solved', COLORS.good,
     resting,
   ] as unknown as ExpressionSpecification;
 }
@@ -234,7 +246,8 @@ export class GlobeView {
     map.addSource('relief', { type: 'image', url: `${DATA}/relief.webp`, coordinates: RELIEF_BOUNDS });
     map.addLayer({ id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.7, 3.5, 0.55, 5, 0], 'raster-fade-duration': 0, 'raster-resampling': 'linear' } });
     map.addLayer({ id: 'country-line', type: 'line', source: 'outlines', paint: {
-      'line-color': ['case', ['==', ['get', 'playable'], 0], COLORS.inactiveBorder, dimmed, COLORS.inactiveBorder, ['==', status, 'found'], COLORS.completedLine, BORDER],
+      // Heat colours are pale to deep red, so their borders are dark to stay visible on them.
+      'line-color': ['case', ['==', ['get', 'playable'], 0], COLORS.inactiveBorder, dimmed, COLORS.inactiveBorder, ['==', status, 'found'], COLORS.completedLine, ['==', status, 'heat'], 'rgba(48, 10, 20, 0.6)', BORDER],
       'line-width': lineWidth(0.45, 1.1),
     } });
     // Drawn above the shared borders so a status outline is never painted over by a neighbour.
@@ -246,7 +259,7 @@ export class GlobeView {
     map.addLayer({ id: 'marker-ring', type: 'circle', source: 'markers', maxzoom: 7, paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 5.5, 5, 8],
       'circle-color': ringColor(this.theme), 'circle-opacity': markerFade(0.45),
-      'circle-stroke-color': ['match', status, 'found', COLORS.completedRing, 'selected', '#ffffff', ['answer', 'target'], COLORS.gold, 'missed', COLORS.missedLine, ['case', dimmed, '#3a4b6b', '#dbe8ff']],
+      'circle-stroke-color': ['match', status, 'found', COLORS.completedRing, 'selected', '#ffffff', ['answer', 'target'], COLORS.gold, 'missed', COLORS.missedLine, 'solved', COLORS.good, 'heat', '#ffe4e7', ['case', dimmed, '#3a4b6b', '#dbe8ff']],
       'circle-stroke-width': ['case', hovered, 2.2, 1.4], 'circle-stroke-opacity': markerFade(1),
     } });
     // One-off pulses for a correct answer or a wrong click; see flash(). Kept crisp: a thin line with little blur.
@@ -312,6 +325,14 @@ export class GlobeView {
     for (const id of Object.keys(this.statuses)) if (!(id in next)) this.setState(id, { status: null });
     for (const [id, s] of Object.entries(next)) if (this.statuses[id] !== s) this.setState(id, { status: s });
     this.statuses = { ...next };
+  }
+
+  // Mystery Country heat per guessed country (0–1), applied as a change list like setStatuses.
+  private heats: { [id: string]: number } = {};
+  setHeat(next: { [id: string]: number }) {
+    for (const id of Object.keys(this.heats)) if (!(id in next)) this.setState(id, { heat: null });
+    for (const [id, h] of Object.entries(next)) if (this.heats[id] !== h) this.setState(id, { heat: h });
+    this.heats = { ...next };
   }
 
   // Outlines one country (or none) while keeping its colour; used for the country opened in Progress.

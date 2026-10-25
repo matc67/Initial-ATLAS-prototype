@@ -9,7 +9,11 @@ export type Cue =
   | { kind: 'milestone'; streak: number }  // replaces the correct sound at 3, 5, 10, 20, 50, 100
   | { kind: 'wrong' }                      // a soft tap: "not quite", never a buzzer
   | { kind: 'record' }                     // a short victory flourish, once per finished run
-  | { kind: 'ui' };                        // a very quiet click for menus and buttons
+  | { kind: 'ui' }                         // a very quiet click for menus and buttons
+  // Mystery Country: a soft tick for each wrong guess, a touch brighter when it is the closest yet (the heatmap says
+  // as much, so the sound adds no clue of its own), and a chime when the mystery is solved.
+  | { kind: 'probe'; closer: boolean }
+  | { kind: 'solved' };
 
 // The sound for an answer: a milestone's chime takes the place of the ordinary correct sound, never both.
 export const cueFor = (e: AnswerEvent): Cue =>
@@ -59,6 +63,10 @@ export function recipe(cue: Cue): Recipe {
       };
     case 'ui':
       return { notes: [tone(900, 0, 0.025, 0.22, 'triangle')], lowpass: 2500 };
+    case 'probe':
+      return { notes: [tone(cue.closer ? 520 : 400, 0, 0.07, cue.closer ? 0.34 : 0.28, 'triangle')], lowpass: cue.closer ? 1400 : 1000 };
+    case 'solved':
+      return recipe({ kind: 'milestone', streak: 10 });
   }
 }
 export const lengthOf = (r: Recipe) => Math.max(...r.notes.map(n => n.at + n.len));
@@ -80,7 +88,7 @@ export const DEFAULT_VOLUME = 0.6;
 // The loudest the master gain goes, at volume 1. Recipes are relative to this.
 const HEADROOM = 0.22;
 // Minimum gaps between repeats of a cue, in ms: rapid wrong guesses give one tap, not a pile of them.
-export const COOLDOWN_MS: { [K in Cue['kind']]: number } = { correct: 40, milestone: 40, wrong: 220, record: 3000, ui: 50 };
+export const COOLDOWN_MS: { [K in Cue['kind']]: number } = { correct: 40, milestone: 40, wrong: 220, record: 3000, ui: 50, probe: 120, solved: 1000 };
 
 export class AudioManager {
   enabled: boolean;

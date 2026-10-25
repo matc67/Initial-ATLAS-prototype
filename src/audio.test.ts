@@ -149,3 +149,24 @@ test('one AudioContext is reused for every sound', () => {
   for (let i = 0; i < 20; i++) { m.play({ kind: 'correct', streak: i }); advance(500); }
   assert.equal(made(), 1);
 });
+
+test('Mystery Country sounds: soft ticks for guesses, a chime when solved, all muted with sound off', () => {
+  const far = recipe({ kind: 'probe', closer: false }), near = recipe({ kind: 'probe', closer: true });
+  // Both ticks are short and much quieter than a correct answer; "closer" is only a little brighter.
+  for (const r of [far, near]) {
+    assert.ok(lengthOf(r) <= 0.12);
+    assert.ok(Math.max(...r.notes.map(n => n.gain)) < peak({ kind: 'correct', streak: 1 }) * 0.5);
+    assert.ok(r.notes.every(n => n.to === undefined));
+  }
+  assert.ok(near.notes[0].freq > far.notes[0].freq && near.notes[0].freq / far.notes[0].freq < 1.5);
+  assert.ok(lengthOf(recipe({ kind: 'solved' })) <= 0.85);
+  const { m, advance } = manager();
+  assert.equal(m.play({ kind: 'probe', closer: true }), true);
+  advance(50);
+  assert.equal(m.play({ kind: 'probe', closer: false }), false);   // rapid clicks do not stack
+  advance(COOLDOWN_MS.probe);
+  assert.equal(m.play({ kind: 'solved' }), true);
+  const off = manager({ on: false });
+  assert.equal(off.m.play({ kind: 'solved' }), false);
+  assert.equal(off.f.started.length, 0);
+});

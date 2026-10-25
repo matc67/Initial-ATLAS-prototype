@@ -6,6 +6,7 @@ import { formatTime, isFirstTry, maxScoreFor, type Attempt } from '../game/scori
 import { overview, recentSprints, recordsFor } from '../game/stats';
 import { COLORS } from '../map/GlobeView';
 import type { PerformanceStore } from '../game/records';
+import { averageGuesses, type MysteryRecord } from '../game/mysteryRecords';
 import { Flag, Icon } from './ui';
 
 const pct = (n: number | null) => (n === null ? '–' : `${Math.round(n)}%`);
@@ -27,12 +28,14 @@ export type ProgressProps = {
   nameOf: (id: string) => string;
   loading: boolean; poolSize: number;
   onPlay: (kind: ChallengeKind) => void;
+  // Mystery Country, for the chosen country set: its own stats, never mixed with the scored modes.
+  mysteryRecord?: MysteryRecord; mysterySize: number; countryOf: (id: string) => Country | undefined; onMystery: () => void;
 };
 
 // Progress: how good the player is at ATLAS and whether they are improving. All-time stats first, then records by area
 // for one kind of challenge, and the latest Sprints. Everything comes from completed runs saved in this browser.
 export default function ProgressPanel(p: ProgressProps) {
-  const [tab, setTab] = useState<'records' | 'recent'>('records');
+  const [tab, setTab] = useState<'records' | 'recent' | 'mystery'>('records');
   const o = overview(p.store);
   const recent = recentSprints(p.store);
   const records = recordsFor(p.store, { kind: p.kind, mode: p.mode, set: p.set });
@@ -55,12 +58,13 @@ export default function ProgressPanel(p: ProgressProps) {
         <span>{o.accuracyRuns === o.games ? (o.games === 1 ? 'from your first run' : `across all ${o.games} runs`) : `across the ${o.accuracyRuns} of ${o.games} runs with answers on record`}</span></p>
     </>}
 
-    <div className="segmented two tabs-inline" role="tablist" aria-label="Progress sections">
+    <div className="segmented tabs-inline" role="tablist" aria-label="Progress sections">
       <button role="tab" aria-selected={tab === 'records'} className={tab === 'records' ? 'on' : ''} onClick={() => setTab('records')}>Records</button>
-      <button role="tab" aria-selected={tab === 'recent'} className={tab === 'recent' ? 'on' : ''} onClick={() => setTab('recent')}>Recent Sprints</button>
+      <button role="tab" aria-selected={tab === 'recent'} className={tab === 'recent' ? 'on' : ''} onClick={() => setTab('recent')}>Sprints</button>
+      <button role="tab" aria-selected={tab === 'mystery'} className={tab === 'mystery' ? 'on' : ''} onClick={() => setTab('mystery')}>Mystery</button>
     </div>
 
-    {tab === 'records' ? <>
+    {tab === 'mystery' ? <MysteryProgress {...p} /> : tab === 'records' ? <>
       <div className="filters">
         <Toggle label="Challenge" value={p.kind} options={[['sprint', 'Sprint'], ['full', 'Full']]} onChange={p.onKind} />
         <Toggle label="Mode" value={p.mode} options={[['find', 'Find'], ['name', 'Name']]} onChange={p.onMode} />
@@ -89,7 +93,7 @@ export default function ProgressPanel(p: ProgressProps) {
         <span className="recent-meta">{pct(run.accuracy)}<small>{formatTime(run.ms)}</small></span>
       </li>)}
     </ul>}
-    <p className="fine">Records compare runs of the same challenge only. Each Sprint draws a new ten, so Sprint records are personal arcade bests. Runs from before streak bonuses keep their scores but are not ranked against new ones. Saved in this browser.</p>
+    {tab !== 'mystery' && <p className="fine">Records compare runs of the same challenge only. Each Sprint draws a new ten, so Sprint records are personal arcade bests. Runs from before streak bonuses keep their scores but are not ranked against new ones. Saved in this browser.</p>}
   </div>;
 }
 
@@ -134,6 +138,37 @@ function RecordDetail(p: ProgressProps) {
       {p.selected ? <RunCountry country={p.selected} result={p.result} bonus={p.resultBonus} nameOf={p.nameOf} onClose={p.onCloseCountry} />
         : <p className="fine">Click a country to see how it went in this run. One run is a snapshot, not proof you know a country for good.</p>}
     </> : <p className="fine">Country-by-country results are saved from your next run of this challenge.</p>}
+  </div>;
+}
+
+// Mystery Country stats for one country set: puzzles solved, guesses, times and the countries discovered.
+function MysteryProgress(p: ProgressProps) {
+  const r = p.mysteryRecord;
+  return <div className="mystery-progress">
+    <div className="filters"><Toggle label="Countries" value={p.set} options={[['200', '200'], ['195', '195']]} onChange={p.onSet} /></div>
+    {!r || (!r.solved && !r.abandoned) ? <div className="empty-hero">
+      <strong>No mysteries yet</strong>
+      <p className="muted">Find the hidden country. Every guess brings you closer.</p>
+      <button className="btn primary" onClick={p.onMystery} disabled={p.loading || !p.mysterySize}><Icon name="mystery" /> Play Mystery Country</button>
+    </div> : <>
+      <div className="stat-grid">
+        <Stat label="Solved" value={r.solved.toLocaleString()} />
+        <Stat label="Average guesses" value={averageGuesses(r) === null ? '–' : averageGuesses(r)!.toFixed(1)} />
+        <Stat label="Fewest guesses" value={r.fewest === null ? '–' : String(r.fewest)} gold={r.fewest === 1} />
+        <Stat label="Fastest" value={r.fastestMs === null ? '–' : formatTime(r.fastestMs)} />
+        <Stat label="Discovered" value={`${r.discovered.length} / ${p.mysterySize}`} />
+        <Stat label="Abandoned" value={r.abandoned.toLocaleString()} />
+      </div>
+      <div className="eyebrow">Recent mysteries</div>
+      <ul className="recent-list">
+        {r.history.map(run => { const c = p.countryOf(run.answer); return <li key={run.id} className={run.id === r.best?.id ? 'best-run' : ''}>
+          <span className="recent-what"><b className="with-flag">{run.solved ? <><Flag iso2={c?.iso2} />{c?.name ?? run.answer}</> : 'Unsolved'}</b><small>{day(run.at)}{run.closest ? ` · closest ${p.nameOf(run.closest.id)}` : ''}</small></span>
+          <span className="recent-score"><b>{run.guesses}</b>{run.id === r.best?.id ? <em>Best</em> : <small>{run.guesses === 1 ? 'guess' : 'guesses'}</small>}</span>
+          <span className="recent-meta">{formatTime(run.ms)}<small>{run.solved ? 'solved' : 'left'}</small></span>
+        </li>; })}
+      </ul>
+    </>}
+    <p className="fine">Mystery Country is ranked by fewest guesses, then time. It has no points and is kept apart from Sprint and Full Challenge records. An unsolved mystery is not named.</p>
   </div>;
 }
 

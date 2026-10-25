@@ -18,6 +18,7 @@ To make a production bundle run `npm run build`.
 - Worldwide and continent filters
 - Score: 100, 50, 25 for the 1st, 2nd and 3rd attempt, then 10; Show me gives 0
 - Streak bonuses for first-try answers in a row: +50 at 3, +100 at 5, +250 at 10, +500 at 20, +1,500 at 50, +4,000 at 100 (a perfect 10-Country Sprint scores 1,400). Records are kept per scoring version, so runs from before bonuses are kept but not ranked against new ones
+- Mystery Country: find a hidden country (from the 200 or the Classic 195) by clicking or typing guesses; each wrong guess is coloured from pale rose (far) to deep red (close). Distance is the shortest great-circle distance between the two countries' land as drawn on the globe (0 km for neighbours; see `src/game/distance.ts`). Ranked by fewest guesses, then time, with its own records; a puzzle in progress survives a refresh
 - Optional sound effects (Web Audio, no music): off by default, toggled from the HUD speaker or Help, with a volume slider; both remembered
 - Progress in `localStorage` without login; two separate first-attempt successes count as mastered
 - Optional mastery overlay; country selection when not playing
