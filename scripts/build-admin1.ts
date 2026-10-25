@@ -180,6 +180,8 @@ for (const p of PROFILES) {
       aliases: u.unit.aliases ?? [], ...(u.unit.abbrev ? { abbrev: u.unit.abbrev } : {}),
       label: labelOf(shape, [Number(first.longitude), Number(first.latitude)]).map(x => +x.toFixed(4)),
       km2: Math.round(km2(shape)),
+      // Where to look to see the whole unit (Name the Region flies to each one), valid across 180°.
+      frame: (({ center, radiusKm }) => ({ center: center.map(x => +x.toFixed(3)), radiusKm: Math.round(radiusKm) }))(frameOf(verticesOf(shape.geometry))),
       src: { ne: u.rows.map(r => Number(r.properties.ne_id)), ...(p.groupBy ? {} : { iso: first.iso_3166_2 }), ...(first.wikidataid && !p.groupBy ? { wikidata: first.wikidataid } : {}) },
     });
   });

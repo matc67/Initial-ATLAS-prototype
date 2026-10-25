@@ -53,3 +53,26 @@ export const MARKER_REACH_PX = 14;
 export const TOUCH_REACH_PX = 22;
 export const reachFor = (coarsePointer: boolean) => (coarsePointer ? TOUCH_REACH_PX : MARKER_REACH_PX);
 export const markerActive = (zoom: number) => zoom < 6.5;
+
+// ---- Subdivisions ---------------------------------------------------------------------------------------------------
+// Which subdivision a click means. Subdivisions tile their country exactly, so a click on land is the unit under the
+// pointer. Two assists keep tiny units fair (Prince Edward Island is a pixel or two wide with all of Canada on a phone):
+// - Over water, a unit within reach counts; several in reach are reported, never guessed.
+// - On land, if a unit that is tiny on screen (under TINY_UNIT_PX across) is also within reach, the click could have been
+//   meant for it: it is reported as too close to call, and the map zooms in instead of counting a guess.
+// Both depend only on the geometry on screen, never on the answer, so neither gives anything away.
+export const TINY_UNIT_PX = 10;
+export type SubPickInput = {
+  direct: string | null;                        // the unit whose land is under the pointer
+  near: { id: string; sizePx: number }[];       // units within reach, with their size on screen
+  overOtherLand: boolean;                       // the pointer is on another country's land
+};
+export function resolveSubPick(p: SubPickInput): Pick {
+  if (p.direct) {
+    const tiny = p.near.filter(n => n.id !== p.direct && n.sizePx < TINY_UNIT_PX).map(n => n.id);
+    return tiny.length ? { kind: 'ambiguous', ids: [p.direct, ...tiny].sort() } : { kind: 'country', id: p.direct };
+  }
+  if (p.overOtherLand || !p.near.length) return { kind: 'none' };
+  const ids = [...new Set(p.near.map(n => n.id))].sort();
+  return ids.length === 1 ? { kind: 'country', id: ids[0] } : { kind: 'ambiguous', ids };
+}

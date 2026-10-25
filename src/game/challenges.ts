@@ -71,3 +71,26 @@ export function sprintChallenge(area: Area, set: CountrySet, mode: GameMode, poo
     version: scoredVersion(`s${SPRINT_SIZE}-${versionOf(pool)}`), earlierVersion: `s${SPRINT_SIZE}-${versionOf(pool)}`,
   };
 }
+
+// ---- Subdivision challenges --------------------------------------------------------------------------------------------
+// First-level subdivisions of one country (provinces, states, territories…), from its data profile. Nothing here names a
+// country: the same functions serve every country with subdivision data (docs/subdivisions.md).
+// `full`: every subdivision. `sprint`: SPRINT_SIZE drawn at random, only when the country has at least that many; a
+// country with fewer has only the full challenge, which is already short, never a padded or repeating Sprint.
+export const subdivisionKinds = (count: number): ChallengeKind[] => (count >= SPRINT_SIZE ? ['sprint', 'full'] : ['full']);
+
+export function subdivisionChallenge(countryId: string, name: string, mode: GameMode, kind: ChallengeKind, ids: string[]): GeographyChallenge {
+  if (kind === 'sprint' && ids.length < SPRINT_SIZE) throw new Error(`${countryId} has ${ids.length} subdivisions, too few for a ${SPRINT_SIZE}-question Sprint`);
+  const list = versionOf(ids);
+  return {
+    // e.g. "can-admin1-find", "can-admin1-sprint-name": apart from every country challenge id.
+    id: `${slug(countryId)}-admin1${kind === 'sprint' ? '-sprint' : ''}-${mode}`,
+    name: kind === 'sprint' ? `${name} Sprint` : name,
+    kind, size: kind === 'sprint' ? SPRINT_SIZE : ids.length,
+    entityType: 'admin1', scopeId: `country:${countryId}`,
+    interaction: mode === 'find' ? 'map-click' : 'text-entry',
+    targetIds: ids,
+    version: scoredVersion(kind === 'sprint' ? `s${SPRINT_SIZE}-${list}` : list),
+    earlierVersion: kind === 'sprint' ? `s${SPRINT_SIZE}-${list}` : list,
+  };
+}

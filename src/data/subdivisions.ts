@@ -5,6 +5,7 @@ import { feature, neighbors } from 'topojson-client';
 import type { GeometryCollection, Topology } from 'topojson-specification';
 import type { LngLat } from '../game/geo';
 import type { AdminTerms } from './entities';
+import type { Playable } from '../game/playable';
 
 export type SubdivisionMeta = {
   enabled: boolean;
@@ -25,6 +26,7 @@ export type SubdivisionIndex = {
 export type SubdivisionProps = {
   id: string; country: string; code: string; name: string; kind: string;
   aliases: string[]; abbrev?: string; label: LngLat; km2: number; color: number;
+  frame: { center: LngLat; radiusKm: number };
   src: { ne: number[]; iso?: string; wikidata?: string };
 };
 export type Subdivision = GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon, SubdivisionProps>;
@@ -86,4 +88,11 @@ export function loadSubdivisions(countryId: string): Promise<SubdivisionSet> {
     sets.set(countryId, p);
   }
   return p;
+}
+
+// A country's subdivisions as round targets, by id.
+export function subdivisionPlayables(set: SubdivisionSet): Map<string, Playable> {
+  return new Map(set.units.features.map(u => [u.properties.id, {
+    id: u.properties.id, name: u.properties.name, aliases: u.properties.aliases, center: u.properties.label, frame: u.properties.frame,
+  }]));
 }

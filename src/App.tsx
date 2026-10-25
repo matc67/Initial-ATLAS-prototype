@@ -11,10 +11,11 @@ import { AMERICAS, AREA_CAMERA, SET_LABEL, STATUS_LABEL, TABS, inArea, inSet, in
 import type { LngLat } from './game/geo';
 import { preloadFlags } from './data/flags';
 import { capitalsOf, loadPlaces, lngLat, type City, type PlacesFile } from './data/places';
-import { countryChallenge, sprintChallenge, type ChallengeKind, type GameMode, type GeographyChallenge } from './game/challenges';
+import { SPRINT_SIZE, countryChallenge, sprintChallenge, subdivisionChallenge, subdivisionKinds, type ChallengeKind, type GameMode, type GeographyChallenge } from './game/challenges';
+import type { Playable } from './game/playable';
 import { answerEvent, FEEDBACK, type AnswerEvent } from './game/feedback';
 import { nameMatches } from './game/names';
-import { addRun, loadPerformance, perfKey, savePerformance, toGameRun, type GameRun } from './game/records';
+import { addRun, loadPerformance, loadSubdivisionRecords, perfKey, saveSubdivisionRecords, savePerformance, toGameRun, type GameRun } from './game/records';
 import { pickRound } from './game/round';
 import { bestsOf, isNewRecord, planSprint, type PersonalBests } from './game/sprint';
 import {
@@ -34,7 +35,7 @@ import {
 } from './game/mysteryRecords';
 import { ROSTER } from './data/roster';
 import SubdivisionInspector from './components/SubdivisionInspector';
-import { describeCount, loadSubdivisionIndex, loadSubdivisions, type SubdivisionIndex, type SubdivisionSet } from './data/subdivisions';
+import { describeCount, loadSubdivisionIndex, loadSubdivisions, subdivisionPlayables, type SubdivisionIndex, type SubdivisionSet } from './data/subdivisions';
 import { PACIFIC_VIEWS, type RegionView } from './map/regions';
 import { COLORS, GlobeView, type Camera, type Land, type StatusMap, type Theme } from './map/GlobeView';
 
@@ -60,6 +61,10 @@ type Game = {
   miss: string | null;     // after a wrong answer, until the next answer or note: '' in Find it, `Not “…”` in Name it
   fx: HudFx | null;        // the latest answer's feedback, played once by the HUD while the next question is live
   bests: NewBests | null;  // set when the run finishes
+  // What the round asks for. Countries: `sub` is null and `places` is the country map. A country's first-level
+  // subdivisions: `sub` is that country's data and `places` its units. The round engine sees only ids either way.
+  sub: SubdivisionSet | null;
+  places: Map<string, Playable>;
   before: PersonalBests | null; // the records as they stood before this run, for the results comparison
 };
 
@@ -103,6 +108,8 @@ export default function App() {
   const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
   const [, setTick] = useState(0);
   const [perf, setPerf] = useState(loadPerformance);
+  // Subdivision records: their own store, never mixed with country records (game/records.ts).
+  const [subPerf, setSubPerf] = useState(loadSubdivisionRecords);
   // Which recorded run the Progress globe shows.
   const [runView, setRunView] = useState<'latest' | 'best'>('latest');
   // Which kind of record Progress shows: Sprints first (the arcade mode), or Full Challenges.
@@ -127,7 +134,7 @@ export default function App() {
   const playIds = useMemo(() => areaIds.filter(id => inSet(countries.get(id)!, countrySet)), [areaIds, countries, countrySet]);
   const round = game?.round;
   const targetId = round && targetOf(round);
-  const target = targetId ? countries.get(targetId) : undefined;
+  const target = targetId ? game?.places.get(targetId) : undefined;
   const inRound = view === 'play' && !!round && round.phase !== 'done';
   const last = round?.answers.at(-1);
   // The full challenge for the chosen area, set and mode: what Play starts and what Progress shows records for.
@@ -165,6 +172,8 @@ export default function App() {
   const [subView, setSubView] = useState<{ set: SubdivisionSet; selected: string | null } | null>(null);
   const [subHover, setSubHover] = useState<string | null>(null);
   const subOpen = view === 'explore' && !!subView;
+  // The subdivisions on the map: a subdivision round's, or the Explore view's. Never both, never another country's.
+  const shownSubs = view === 'play' && game?.sub ? game.sub : view === 'explore' && subView ? subView.set : null;
   useEffect(() => { if (import.meta.env.DEV) loadSubdivisionIndex().then(setSubIndex, () => {}); }, []);
 
   // Map events arrive outside React, so they always call the latest handlers through this ref.
@@ -234,7 +243,10 @@ export default function App() {
     return () => clearInterval(id);
   }, [ticking]);
 
-  const flyToCountry = (c: Country) => globeRef.current?.fly(fit({ center: c.center, zoom: tiny.has(c.id) ? 5.2 : 3.8 }));
+  const flyToCountry = (c: Pick<Playable, 'id' | 'center'>) => globeRef.current?.fly(fit({ center: c.center, zoom: tiny.has(c.id) ? 5.2 : 3.8 }));
+  // The camera for a whole round (its area, or the country whose subdivisions are played) and for one of its targets.
+  const frameScope = (g: Pick<Game, 'sub' | 'area'>) => (g.sub ? globeRef.current?.frame(g.sub.meta.frame.center, g.sub.meta.frame.radiusKm) : globeRef.current?.fly(fit(AREA_CAMERA[g.area])));
+  const lookAtTarget = (p: Playable) => (p.frame ? globeRef.current?.frame(p.frame.center, Math.max(150, p.frame.radiusKm * 1.15)) : flyToCountry(p));
 
   function chooseArea(a: Area) {
     setArea(a);
@@ -265,10 +277,46 @@ export default function App() {
     setSelected(null);
     setSelectedLand(null);
     setHelp(false);
-    commit({ mode: m, area: a, set: countrySet, challenge: c, kind, round: newRound(queue, performance.now()), held: false, message: '', miss: null, fx: null, bests: null, before: null });
+    commit({ mode: m, area: a, set: countrySet, challenge: c, kind, round: newRound(queue, performance.now()), held: false, message: '', miss: null, fx: null, bests: null, before: null, sub: null, places: countries });
     setGuess('');
     const first = countries.get(queue[0]);
     if (m === 'name' && first) flyToCountry(first); else globeRef.current?.fly(fit(AREA_CAMERA[a]));
+  }
+
+  // Starts Find the Region or Name the Region for a country's first-level subdivisions: every one (`full`), or a Sprint of
+  // SPRINT_SIZE when it has that many. The same round engine, scoring, HUD and results as countries; the challenge and its
+  // records are the country's own. Started from that country's Explore panel (docs/subdivisions.md).
+  function startSubdivisionRound(countryId: string, m: Mode, kind: ChallengeKind) {
+    loadSubdivisions(countryId).then(set => {
+      const country = countries.get(countryId), ids = set.units.features.map(u => u.properties.id);
+      if (!country || !subdivisionKinds(ids.length).includes(kind)) return;
+      leaveMystery();
+      const terms = set.meta.terms.plural;
+      const challenge = subdivisionChallenge(countryId, `${country.name}: ${terms.charAt(0).toUpperCase()}${terms.slice(1)}`, m, kind, ids);
+      const queue = kind === 'sprint' ? pickRound(ids, SPRINT_SIZE) : pickRound(ids);
+      const places = subdivisionPlayables(set);
+      setSubView(null);
+      setSubHover(null);
+      setView('play');
+      setSelected(countryId);
+      setSelectedLand(null);
+      setHelp(false);
+      setRegionView(null);
+      const g: Game = { mode: m, area: country.continent, set: countrySet, challenge, kind, round: newRound(queue, performance.now()), held: false, message: '', miss: null, fx: null, bests: null, before: null, sub: set, places };
+      commit(g);
+      setGuess('');
+      if (m === 'name') lookAtTarget(places.get(queue[0])!); else frameScope(g);
+    }, e => setError(e instanceof Error ? e.message : 'Subdivisions could not load.'));
+  }
+
+  // Leaving a round: a subdivision round goes back to its country in Explore, still selected, with its subdivisions shown.
+  function leaveRound() {
+    const g = gameRef.current;
+    commit(null);
+    if (!g?.sub) return;
+    setView('explore');
+    setSelected(g.sub.countryId);
+    setSubView({ set: g.sub, selected: null });
   }
 
   // Fetches the flags of the next few questions ahead of time, so each one is already there when its question appears.
@@ -281,21 +329,20 @@ export default function App() {
     const moved = r.index !== g.round.index || (r.phase === 'done' && g.round.phase !== 'done');
     let bests: NewBests | null = g.bests, before = g.before;
     if (r.phase === 'done' && g.round.phase !== 'done') {
-      globeRef.current?.fly(fit(AREA_CAMERA[g.area]));
-      const key = perfKey(g.challenge);
-      before = bestsOf(perf[key]);
-      const result = addRun(perf[key], toGameRun(r, g.challenge, performance.now()));
-      const all = { ...perf, [key]: result.performance };
-      setPerf(all);
-      savePerformance(all);
-      setRunView('latest');
-      setProgressKind(g.kind);
+      frameScope(g);
+      // Country runs go to the country records; subdivision runs to their own store.
+      const store = g.sub ? subPerf : perf, key = perfKey(g.challenge);
+      before = bestsOf(store[key]);
+      const result = addRun(store[key], toGameRun(r, g.challenge, performance.now()));
+      const all = { ...store, [key]: result.performance };
+      if (g.sub) { setSubPerf(all); saveSubdivisionRecords(all); }
+      else { setPerf(all); savePerformance(all); setRunView('latest'); setProgressKind(g.kind); }
       bests = result.bests;
       // One victory flourish for a genuine new record, however many stats improved.
       if (isNewRecord(before, result.bests)) setTimeout(() => audio.play({ kind: 'record' }), 350);
     } else if (moved && g.mode === 'name') {
-      const c = countries.get(r.queue[r.index]);
-      if (c) flyToCountry(c);
+      const c = g.places.get(r.queue[r.index]);
+      if (c) lookAtTarget(c);
     }
     if (moved) { setGuess(''); warmFlags(r.queue, r.index + 1); }
     const fx = event || lost ? { key: ++fxKey.current, at: performance.now(), event, lost } : g.fx;
@@ -312,9 +359,17 @@ export default function App() {
   handlers.current.hover = setHoverId;
   handlers.current.subHover = setSubHover;
   handlers.current.subPick = (id, at, ambiguous) => {
-    // Several units in reach of a click on water: zoom in so the player can choose, as for tiny countries.
-    if (ambiguous) { globeRef.current?.fly({ center: at, zoom: Math.min(8, globeRef.current.map.getZoom() + 2) }, 700); return; }
-    setSubView(v => (v ? { ...v, selected: id } : v));
+    const g = gameRef.current, inSubRound = view === 'play' && !!g?.sub;
+    if (inSubRound && (g!.mode !== 'find' || g!.round.phase !== 'asking' || isPaused(g!.round))) return;
+    // Too close to call (several units in reach, or a tiny one next to the click): zoom in so the player can choose, as
+    // for tiny countries. Never a guess, never a mistake, and the same wherever the answer is.
+    if (ambiguous) {
+      globeRef.current?.fly({ center: at, zoom: Math.min(8, globeRef.current.map.getZoom() + 2) }, 700);
+      if (inSubRound) commit({ ...g!, message: FEEDBACK.tooClose, miss: null });
+      return;
+    }
+    if (inSubRound && id) { clickGuess(g!, id, at); return; }
+    if (view === 'explore') setSubView(v => (v ? { ...v, selected: id } : v));
   };
 
   // Opens a country's subdivision view in Explore: the same globe, framed on the country, the rest dimmed.
@@ -341,7 +396,7 @@ export default function App() {
     if (ambiguous) {
       // In a mystery, countries already guessed and those outside the set are set aside the same way.
       const open = mg ? ambiguous.filter(c => { const k = countries.get(c); return !!k && inSet(k, mg.set) && !mg.m.guesses.some(x => x.id === c); })
-        : view === 'play' && g ? ambiguous.filter(c => { const k = countries.get(c); return !!k && inArea(k, g.area) && inSet(k, g.set) && !isCompleted(g.round, c); }) : [];
+        : view === 'play' && g && !g.sub ? ambiguous.filter(c => { const k = countries.get(c); return !!k && inArea(k, g.area) && inSet(k, g.set) && !isCompleted(g.round, c); }) : [];
       if (open.length === 1) id = open[0];
       else {
         globeRef.current?.fly({ center: at, zoom: Math.min(8, globeRef.current.map.getZoom() + 2) }, 700);
@@ -371,25 +426,36 @@ export default function App() {
       return;
     }
     if (!g || g.mode !== 'find' || g.round.phase !== 'asking' || isPaused(g.round)) return;
+    // A subdivision round: its units take clicks through subPick; anything else is outside it, never a mistake.
+    if (g.sub) {
+      const country = countries.get(g.sub.countryId)!;
+      commit({ ...g, message: id || land ? FEEDBACK.units.outside(country.name) : FEEDBACK.units.ocean(g.sub.meta.terms.singular), miss: null });
+      return;
+    }
     // Clicks on the ocean, unplayable land, other areas or other country sets are explained but never count as mistakes,
     // and no message names what was clicked (see game/feedback.ts).
     if (!id) { commit({ ...g, message: land ? FEEDBACK.notInGame : FEEDBACK.ocean, miss: null }); return; }
     const clicked = countries.get(id)!;
     if (!inArea(clicked, g.area)) { commit({ ...g, message: FEEDBACK.outsideArea(areaTitle(g.area)), miss: null }); return; }
     if (!inSet(clicked, g.set)) { commit({ ...g, message: FEEDBACK.notInSet, miss: null }); return; }
+    clickGuess(g, id, at);
+  };
+
+  // A click on a country or a subdivision in Find it: the same rules for both.
+  function clickGuess(g: Game, id: string, at: LngLat) {
     const { round: r, outcome } = guessRound(g.round, id, performance.now());
     const event = answerEvent(g.round, r, outcome);
     if (!event) return;
     pulseAt(at, event);
     if (event.kind === 'correct') { globeRef.current?.flash(id, FLASH_GOOD, 500); apply(g, r, '', { event }); return; }
-    // The wrong country is recorded by id for scoring and the results review, flashes red briefly, and stays unnamed.
+    // The wrong place is recorded by id for scoring and the results review, flashes red briefly, and stays unnamed.
     globeRef.current?.flash(id, FLASH_BAD, WRONG_FLASH_MS);
     apply(g, r, '', { event, lost: event.lostStreak, miss: '' });
-  };
+  }
 
   function submitName(e: FormEvent) {
     e.preventDefault();
-    const g = gameRef.current, t = g && countries.get(targetOf(g.round) ?? '');
+    const g = gameRef.current, t = g && g.places.get(targetOf(g.round) ?? '');
     if (!g || !t || !guess.trim()) return;
     const right = nameMatches(t, guess);
     const { round: r, outcome } = typedGuess(g.round, guess, right, performance.now());
@@ -404,10 +470,10 @@ export default function App() {
   }
 
   function reveal() {
-    const g = gameRef.current, t = g && countries.get(targetOf(g.round) ?? '');
+    const g = gameRef.current, t = g && g.places.get(targetOf(g.round) ?? '');
     if (!g || !t) return;
     apply(g, revealRound(g.round, performance.now()), 'The answer is shown in gold.', { lost: g.round.streak });
-    if (g.mode === 'find') flyToCountry(t);
+    if (g.mode === 'find') lookAtTarget(t);
   }
 
   function next() {
@@ -528,7 +594,8 @@ export default function App() {
   // Same challenge, fresh run: a Sprint draws a new random ten.
   function playAgain() {
     const g = gameRef.current;
-    if (g) startRound({ kind: g.kind, area: g.area, mode: g.mode });
+    if (g?.sub) startSubdivisionRound(g.sub.countryId, g.mode, g.kind);
+    else if (g) startRound({ kind: g.kind, area: g.area, mode: g.mode });
   }
 
   const hold = (held: boolean) => { const g = gameRef.current; if (g) commit({ ...g, held }); };
@@ -553,7 +620,7 @@ export default function App() {
     const s: StatusMap = {};
     if (view === 'progress') for (const [id, a] of runResults) s[id] = runStatus(a);
     if (view === 'explore' && selected) s[selected] = 'selected';
-    if (view === 'play' && round) {
+    if (view === 'play' && round && !game!.sub) {
       // Every country found by guessing gets the same status, so the globe paints them all one colour.
       for (const a of round.answers) s[a.id] = a.hint ? 'missed' : 'found';
       if (round.phase === 'revealed' && last) s[last.id] = 'answer';
@@ -566,6 +633,16 @@ export default function App() {
     }
     return s;
   }, [view, selected, round, game, last, targetId, runResults, mystery]);
+  // A subdivision round's statuses: the same rules as countries, on the subdivision layer.
+  const subStatuses = useMemo<StatusMap>(() => {
+    const s: StatusMap = {};
+    if (view !== 'play' || !round || !game?.sub) return s;
+    for (const a of round.answers) s[a.id] = a.hint ? 'missed' : 'found';
+    if (round.phase === 'revealed' && last) s[last.id] = 'answer';
+    if (round.phase === 'asking' && game.mode === 'name' && targetId) s[targetId] = 'target';
+    return s;
+  }, [view, round, game, last, targetId]);
+  useEffect(() => { globeRef.current?.setSubStatuses(subStatuses); }, [subStatuses]);
   const heats = useMemo(() => (view === 'play' && mystery ? Object.fromEntries(missesOf(mystery.m).map(x => [x.id, heatOf(x.km)])) : {}), [view, mystery]);
   useEffect(() => { if (countries.size) globeRef.current?.setHeat(heats); }, [heats, countries]);
   const theme: Theme = view === 'progress' ? 'progress' : view === 'play' && mystery ? 'mystery' : view === 'play' && game ? 'play' : 'explore';
@@ -575,14 +652,14 @@ export default function App() {
     // In a Classic 195 round, the 5 extra ATLAS countries fade back with everything outside the area.
     // Progress shows the records of the chosen country set, so it fades the rest the same way.
     // A mystery covers the whole world: only countries outside its set fade. A subdivision view fades every other country.
-    const out = (c: Country) => view === 'explore' && subView ? c.id !== subView.set.countryId : view === 'play' && mystery ? !inSet(c, mystery.set)
+    const out = (c: Country) => shownSubs ? c.id !== shownSubs.countryId : view === 'play' && mystery ? !inSet(c, mystery.set)
       : !inArea(c, area) || (view === 'play' && !!game && !inSet(c, game.set)) || (view === 'progress' && !inSet(c, countrySet));
     if (countries.size) globeRef.current?.setDimmed(new Set([...countries.values()].filter(out).map(c => c.id)));
-  }, [area, countries, view, game, countrySet, mystery?.set, !!mystery, subView?.set]);
+  }, [area, countries, view, game, countrySet, mystery?.set, !!mystery, shownSubs]);
   useEffect(() => { if (countries.size) globeRef.current?.setFocus(view === 'progress' ? selected : null); }, [view, selected, countries]);
   // The subdivision layer shows only the country on view, only in Explore.
   useEffect(() => { if (view !== 'explore' && subView) setSubView(null); }, [view]);
-  useEffect(() => { if (countries.size) globeRef.current?.showSubdivisions(subView ? subView.set : null); }, [subView?.set, countries]);
+  useEffect(() => { if (countries.size) globeRef.current?.showSubdivisions(shownSubs); }, [shownSubs, countries]);
   useEffect(() => { globeRef.current?.setSubSelected(subView?.selected ?? null); }, [subView?.selected, subView?.set]);
   // Development entry: #subdivisions=CAN opens that country's view once the map has loaded.
   useEffect(() => {
@@ -614,7 +691,11 @@ export default function App() {
     return { ...n, none: Math.max(0, challenge.targetIds.length - runResults.size) };
   }, [runResults, challenge]);
   const stats = round && statsOf(round, performance.now());
-  const nameOf = (id: string) => (id.startsWith('typed:') ? `“${id.slice(6)}”` : countries.get(id)?.name ?? id);
+  const nameOf = (id: string) => (id.startsWith('typed:') ? `“${id.slice(6)}”` : game?.places.get(id)?.name ?? countries.get(id)?.name ?? id);
+  // A subdivision round's labels: the country, and its own word for what is asked ("province or territory").
+  const scopeName = (g: Game) => (g.sub ? countries.get(g.sub.countryId)?.name ?? g.sub.countryId : areaShort(g.area));
+  const unitWord = (g: Game) => (g.sub ? g.sub.meta.terms.singular : 'country');
+  const unitsWord = (g: Game) => (g.sub ? g.sub.meta.terms.plural : 'countries');
 
   const answerBar = inRound && game?.mode === 'name' && round?.phase === 'asking' && !game.held;
   // Mystery Country on screen: its numbers, the countries it can take as guesses, and the record for the chosen set.
@@ -679,10 +760,10 @@ export default function App() {
     </aside>}
 
     {inRound && game && round && target && stats && <Hud
-      kindLabel={game.kind === 'sprint' ? 'Sprint' : null} area={areaShort(game.area)} mode={game.mode} held={game.held}
-      round={round} stats={stats} target={target} message={game.message} miss={game.miss} fx={game.fx} now={performance.now()}
+      kindLabel={game.kind === 'sprint' ? 'Sprint' : null} area={scopeName(game)} mode={game.mode} held={game.held}
+      round={round} stats={stats} target={target} unit={unitWord(game)} message={game.message} miss={game.miss} fx={game.fx} now={performance.now()}
       sound={sound} onSound={toggleSound}
-      onHold={hold} onEnd={() => commit(null)} onReveal={reveal} onNext={next} />}
+      onHold={hold} onEnd={leaveRound} onReveal={reveal} onNext={next} />}
 
     {mysteryPlaying && mStats && <MysteryHud
       setLabel={mystery!.set === '195' ? 'Classic 195' : '200 countries'} held={mystery!.held} stats={mStats}
@@ -702,10 +783,10 @@ export default function App() {
         history={mHistory} onNext={() => startMystery(mystery!.set)} onBack={() => { leaveMystery(); globeRef.current?.fly(fit(AREA_CAMERA[area])); }} />
     </aside>}
 
-    {inRound && game?.area === 'Oceania' && !game.held && <RegionNav label="Pacific" views={PACIFIC_VIEWS} active={regionView} onPick={goToRegion} />}
+    {inRound && game?.area === 'Oceania' && !game.sub && !game.held && <RegionNav label="Pacific" views={PACIFIC_VIEWS} active={regionView} onPick={goToRegion} />}
 
     {answerBar && <form className="answer-bar" onSubmit={submitName}>
-      <input autoFocus value={guess} onChange={e => setGuess(e.target.value)} placeholder="Type your answer…" aria-label="Country name" />
+      <input autoFocus value={guess} onChange={e => setGuess(e.target.value)} placeholder="Type your answer…" aria-label={`Name of the ${game ? unitWord(game) : 'country'}`} />
       <button type="submit" aria-label="Submit answer" data-silent><Icon name="arrow" /></button>
     </form>}
 
@@ -729,35 +810,37 @@ export default function App() {
       </>}
 
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'sprint' && <SprintResults
-        area={areaShort(game.area)} modeLabel={game.mode === 'find' ? 'Find it' : 'Name it'} stats={stats} answers={round.answers}
-        before={game.before} bests={game.bests} countries={countries} nameOf={nameOf}
-        onPlayAgain={playAgain} onChange={() => commit(null)} />}
+        area={scopeName(game)} modeLabel={game.sub ? (game.mode === 'find' ? 'Find the Region' : 'Name the Region') : game.mode === 'find' ? 'Find it' : 'Name it'} stats={stats} answers={round.answers}
+        before={game.before} bests={game.bests} countries={game.places} nameOf={nameOf}
+        onPlayAgain={playAgain} onChange={leaveRound}
+        heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} changeLabel={game.sub ? `Back to ${scopeName(game)}` : undefined} />}
 
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'full' && <>
-        <div className="eyebrow">{areaShort(game.area)} Challenge Complete · {stats.total} Countries · {game.mode === 'find' ? 'Find it' : 'Name it'}</div>
-        {stats.perfect && <div className="perfect">Perfect run · {stats.score.toLocaleString()}<span>Every country first try, the maximum score. No mistakes, no hints.</span></div>}
-        {isNewRecord(game.before, game.bests) && <div className="record"><Burst />New personal best<span>Your best {areaShort(game.area)} Challenge run yet.</span></div>}
+        <div className="eyebrow">{scopeName(game)} Challenge Complete · {stats.total} {unitsWord(game).replace(/^./, ch => ch.toUpperCase())} · {game.sub ? (game.mode === 'find' ? 'Find the Region' : 'Name the Region') : game.mode === 'find' ? 'Find it' : 'Name it'}</div>
+        {stats.perfect && <div className="perfect">Perfect run · {stats.score.toLocaleString()}<span>Every {unitWord(game)} first try, the maximum score. No mistakes, no hints.</span></div>}
+        {isNewRecord(game.before, game.bests) && <div className="record"><Burst />New personal best<span>Your best {scopeName(game)} Challenge run yet.</span></div>}
         <div className="headline">
           <div><span>Score</span><strong>{stats.score.toLocaleString()}</strong><small>/ {stats.maxScore.toLocaleString()}</small>{game.bests?.score && <em>New best</em>}</div>
           <div><span>First-try accuracy</span><strong>{pct(stats.accuracy)}</strong>{game.bests?.accuracy && <em>New best</em>}</div>
         </div>
         <dl className="facts">
           <div><dt>Correct on first try</dt><dd>{stats.firstTryCorrect} / {stats.total}</dd></div>
-          <div><dt>Countries missed</dt><dd>{stats.countriesMissed}</dd></div>
+          <div><dt>{unitsWord(game).replace(/^./, ch => ch.toUpperCase())} missed</dt><dd>{stats.countriesMissed}</dd></div>
           <div><dt>Incorrect guesses</dt><dd>{stats.totalMistakes}{game.bests?.mistakes && <em> · new best</em>}</dd></div>
           {stats.hintsUsed > 0 && <div><dt>Show me used</dt><dd>{stats.hintsUsed}</dd></div>}
           <div><dt>Longest perfect streak</dt><dd>{stats.longestStreak}{game.bests?.streak && <em> · new best</em>}</dd></div>
           <div><dt>Time</dt><dd>{formatTime(stats.elapsedMs)}{game.bests?.time && <em> · new best</em>}</dd></div>
         </dl>
         <ScoreBreakdown stats={stats} />
-        <ReviewList answers={round.answers} countries={countries} nameOf={nameOf} />
+        <ReviewList answers={round.answers} countries={game.places} nameOf={nameOf} heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} />
         <button className="btn primary" onClick={playAgain}>Play again</button>
-        <button className="btn" onClick={() => { setRunView('latest'); setView('progress'); }}>See this run in Progress</button>
-        <button className="btn" onClick={() => commit(null)}>Change challenge</button>
+        {!game.sub && <button className="btn" onClick={() => { setRunView('latest'); setView('progress'); }}>See this run in Progress</button>}
+        <button className="btn" onClick={leaveRound}>{game.sub ? `Back to ${scopeName(game)}` : 'Change challenge'}</button>
       </>}
 
       {view === 'explore' && subView && selectedCountry ? <SubdivisionInspector country={selectedCountry} set={subView.set} selected={subView.selected}
-        onSelect={id => setSubView({ ...subView, selected: id })} onExit={exitSubdivisions} />
+        onSelect={id => setSubView({ ...subView, selected: id })} onExit={exitSubdivisions}
+        onPlay={(m, kind) => startSubdivisionRound(subView.set.countryId, m, kind)} records={subPerf} />
       : view === 'explore' && (selectedCountry ? <CountryPanel
         country={selectedCountry} places={selectedPlaces} placesError={placesError} loaded={!!places}
         challengeSize={countryChallenge(selectedCountry.continent, countrySet, 'find').targetIds.length}
@@ -777,7 +860,8 @@ export default function App() {
         mysteryRecord={mysteryRecord} mysterySize={mEntries.length} countryOf={id => countries.get(id)} onMystery={() => startMystery()} />}
     </aside>}
 
-    {subView && subHover ? <div className="hover-name">{subView.set.byId.get(subHover)?.properties.name}<small>{subView.set.byId.get(subHover)?.properties.kind}</small></div>
+    {/* In a round, only subdivisions already found are named, as for countries. */}
+    {shownSubs && subHover && (!inRound || round?.answers.some(a => a.id === subHover && !a.hint)) ? <div className="hover-name">{shownSubs.byId.get(subHover)?.properties.name}<small>{shownSubs.byId.get(subHover)?.properties.kind}</small></div>
       : hoverCountry && <div className="hover-name"><Flag iso2={hoverCountry.iso2} />{hoverCountry.name}</div>}
     <div className="zoom" data-silent><button aria-label="Zoom in" onClick={() => globeRef.current?.zoomBy(1)}>+</button><button aria-label="Zoom out" onClick={() => globeRef.current?.zoomBy(-1)}>−</button></div>
     {error && <div className="error">{error}</div>}

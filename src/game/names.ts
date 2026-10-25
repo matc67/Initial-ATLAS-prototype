@@ -7,7 +7,8 @@ export function normalize(s: string): string {
     .replace(/\bst\b/g, 'saint').replace(/^the /, '').trim();
 }
 
-export function nameMatches(entry: RosterEntry, guess: string): boolean {
+// Any named place: a country, or a subdivision (whose aliases come from its reviewed profile).
+export function nameMatches(entry: Pick<RosterEntry, 'name' | 'aliases'>, guess: string): boolean {
   const g = normalize(guess);
   return !!g && [entry.name, ...entry.aliases].some(n => normalize(n) === g);
 }

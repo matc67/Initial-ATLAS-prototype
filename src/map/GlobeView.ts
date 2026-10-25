@@ -5,7 +5,7 @@ import type { GeometryCollection, Topology } from 'topojson-specification';
 import { distanceKm, type LngLat } from '../game/geo';
 import { HEAT_STOPS } from '../game/mystery';
 import { isletsOf, outlinesOf } from './outlines';
-import { markerActive, reachFor, resolvePick, ringRadiusAt } from './pick';
+import { markerActive, reachFor, resolvePick, resolveSubPick, ringRadiusAt } from './pick';
 
 // Round states: `found` = completed this round, `answer` = shown after the last miss, `target` = the country to name.
 // Progress states, from one recorded run: `first` = correct first try, `retry` = needed more attempts, `hinted` = Show me.
@@ -86,6 +86,12 @@ function activeColor(theme: Theme): ExpressionSpecification {
 }
 // Inactive land: neutral blue-gray. A country selected in Explore outside the region still shows its own colour.
 const baseColor = ['match', status, 'selected', vivid, ['case', hovered, '#2a3d58', inactive]] as unknown as ExpressionSpecification;
+// A subdivision's fill: the same rules as an active country (found, missed, answer, target, muted in a round), plus the
+// selected and hovered lift that Explore uses for inspecting units.
+const subFill = (theme: Theme): ExpressionSpecification => {
+  const brighter = (t: number) => palette(COLORS.country.map(c => mix(c, '#ffffff', t)));
+  return ['case', selectedSub, brighter(0.3), ['all', ['==', status, ''], hovered, theme === 'explore'], brighter(0.14), activeColor(theme)] as unknown as ExpressionSpecification;
+};
 // Ring markers read like their country: active colour inside the region, neutral outside.
 const ringColor = (theme: Theme): ExpressionSpecification => ['case', dimmed, inactive, activeColor(theme)] as unknown as ExpressionSpecification;
 // `focus` outlines the country opened in Progress without changing its run colour.
@@ -100,7 +106,7 @@ const SOURCES = ['countries', 'outlines', 'islets', 'halos', 'markers'] as const
 // Halos are invisible click areas; rings are found by screen distance (see pick.ts), so only these layers are queried.
 const PICK_LAYERS = ['halo-hit', 'country-base', 'land-edge-base'];
 const isLandLayer = (id: string) => id === 'country-base' || id === 'land-edge-base';
-const FLASH_LAYERS = ['flash-line', 'flash-ring'];
+const FLASH_LAYERS = ['flash-line', 'flash-ring', 'sub-flash'];
 // Borders: a muted blue-grey that reads against the ocean without outshining the land.
 const BORDER = 'rgba(172, 196, 228, 0.5)';
 // Coastline width for the land-edge layers: the land's own colour, drawn along its outline (see load()).
@@ -111,6 +117,13 @@ const SUB_SOURCES = ['sub-units', 'sub-islets'] as const;
 const SUB_PICK = ['sub-fill', 'sub-edge'];
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 const selectedSub = ['boolean', ['feature-state', 'selected'], false] as ExpressionSpecification;
+// [west, south, east, north] of a geometry's points (a subdivision's extent; units across 180° are not expected).
+function boxOf(g: GeoJSON.Geometry): [number, number, number, number] {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  const walk = (c: unknown): void => { if (Array.isArray(c) && typeof c[0] === 'number') { const [x, y] = c as number[]; w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); } else if (Array.isArray(c)) c.forEach(walk); };
+  if ('coordinates' in g) walk(g.coordinates);
+  return [w, s, e, n];
+}
 const LAND_EDGE = ['interpolate', ['linear'], ['zoom'], 1, 1.1, 4, 0.9, 7, 0.6] as ExpressionSpecification;
 // Region fades: each country carries an `act` feature-state from 0 (neutral land) to 1 (full colour) that is animated per
 // country. Layers and their filters never change, so a region switch never makes MapLibre rebuild its tiles.
@@ -315,8 +328,7 @@ export class GlobeView {
     const map = this.map;
     for (const id of SUB_SOURCES) map.addSource(id, { type: 'geojson', data: EMPTY, promoteId: 'id' });
     map.addSource('sub-borders', { type: 'geojson', data: EMPTY });
-    const brighter = (t: number) => palette(COLORS.country.map(c => mix(c, '#ffffff', t)));
-    const fill = ['case', selectedSub, brighter(0.3), hovered, brighter(0.14), vivid] as unknown as ExpressionSpecification;
+    const fill = subFill(this.theme);
     // Fills under the relief (so the globe keeps its shading) and above the country fills they replace.
     map.addLayer({ id: 'sub-fill', type: 'fill', source: 'sub-units', paint: { 'fill-color': fill, 'fill-opacity': 0.97 } }, 'relief');
     map.addLayer({ id: 'sub-edge', type: 'line', source: 'sub-islets', layout: { 'line-join': 'round' }, paint: { 'line-color': fill, 'line-width': LAND_EDGE, 'line-opacity': 0.97 } }, 'relief');
@@ -324,10 +336,13 @@ export class GlobeView {
     map.addLayer({ id: 'sub-border', type: 'line', source: 'sub-borders', layout: { 'line-join': 'round' }, paint: {
       'line-color': 'rgba(240, 246, 255, 0.62)', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.5, 5, 1.2],
     } }, 'country-line');
+    // The selected or hovered unit (Explore); in a round, the answer shown in gold and the unit missed with Show me.
     map.addLayer({ id: 'sub-outline', type: 'line', source: 'sub-units', layout: { 'line-join': 'round' }, paint: {
-      'line-color': '#fff6dc', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.2, 5, 2.4],
-      'line-opacity': ['case', selectedSub, 1, hovered, 0.55, 0],
+      'line-color': ['match', status, ['answer', 'target'], COLORS.gold, 'missed', COLORS.missedLine, '#fff6dc'],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.2, 5, 2.4],
+      'line-opacity': ['case', selectedSub, 1, ['match', status, ['answer', 'target', 'missed'], true, false], 0.9, hovered, 0.55, 0],
     } }, 'missed-line');
+    map.addLayer({ id: 'sub-flash', type: 'line', source: 'sub-units', filter: ['==', ['get', 'id'], ''], layout: { 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': 0, 'line-blur': 0.6, 'line-opacity': 0 } });
   }
 
   // Shows one country's subdivisions, or none. Clears hover and selection.
@@ -338,7 +353,21 @@ export class GlobeView {
     (this.map.getSource('sub-units') as maplibregl.GeoJSONSource).setData(data?.units ?? EMPTY);
     (this.map.getSource('sub-islets') as maplibregl.GeoJSONSource).setData(data ? isletsOf(data.units, ISLET_KM2) : EMPTY);
     (this.map.getSource('sub-borders') as maplibregl.GeoJSONSource).setData(data?.borders ?? EMPTY);
+    for (const id of Object.keys(this.subStatuses)) if (this.subIds.includes(id)) this.setSubState(id, { status: null });
+    this.subStatuses = {};
     this.subIds = data ? data.units.features.map(f => String(f.properties?.id)) : [];
+    // Each unit's extent, for its size on screen (see subPick).
+    this.subBoxes = new Map(data ? data.units.features.map(f => [String(f.properties?.id), boxOf(f.geometry)]) : []);
+  }
+
+  // Round statuses for subdivisions (found, missed, answer, target), applied as a change list like setStatuses.
+  private subStatuses: StatusMap = {};
+  private subBoxes = new Map<string, [number, number, number, number]>();
+  setSubStatuses(next: StatusMap) {
+    if (!this.loaded) return;
+    for (const id of Object.keys(this.subStatuses)) if (!(id in next)) this.setSubState(id, { status: null });
+    for (const [id, st] of Object.entries(next)) if (this.subStatuses[id] !== st) this.setSubState(id, { status: st });
+    this.subStatuses = { ...next };
   }
 
   // The unit under the pointer, when a subdivision view is open. Every point of the country belongs to exactly one unit
@@ -351,14 +380,24 @@ export class GlobeView {
   // A click: the unit under the pointer, exactly. Over water, units within the click reach (the same reach as country
   // rings, wider for touch) are considered, so a unit a few pixels wide at this zoom (Prince Edward Island with all of
   // Canada on a phone) can still be tapped: one in reach is that unit; several are reported, never guessed.
+  // A unit that is tiny on screen next to the click makes it too close to call (see resolveSubPick in pick.ts).
   private subPick(point: maplibregl.Point): { id: string | null; ambiguous?: string[] } | null {
+    if (!this.subIds.length) return null;
     const direct = this.subAt(point);
-    if (direct || !this.subIds.length) return direct ? { id: direct } : null;
     const r = this.reach, box: [maplibregl.PointLike, maplibregl.PointLike] = [[point.x - r, point.y - r], [point.x + r, point.y + r]];
-    const near = [...new Set(this.map.queryRenderedFeatures(box, { layers: SUB_PICK }).map(f => String(f.properties.id)))];
-    // Over another country's land, a nearby unit never takes the click.
-    if (!near.length || this.pickAt(point).id) return null;
-    return near.length === 1 ? { id: near[0] } : { id: null, ambiguous: near.sort() };
+    const ids = [...new Set(this.map.queryRenderedFeatures(box, { layers: SUB_PICK }).map(f => String(f.properties.id)))];
+    const near = ids.map(id => ({ id, sizePx: this.sizeOnScreen(id) }));
+    const pick = resolveSubPick({ direct, near, overOtherLand: !direct && !!this.pickAt(point).id });
+    if (pick.kind === 'country') return { id: pick.id };
+    if (pick.kind === 'ambiguous') return { id: null, ambiguous: pick.ids };
+    return null;
+  }
+  // The larger side of a unit's extent on screen, in pixels (its whole extent: Nunavut's islands count as one unit).
+  private sizeOnScreen(id: string): number {
+    const b = this.subBoxes.get(id);
+    if (!b) return Infinity;
+    const a = this.map.project([b[0], b[1]]), c = this.map.project([b[2], b[3]]);
+    return Math.max(Math.abs(c.x - a.x), Math.abs(c.y - a.y));
   }
   private setSubState(id: string, state: { [key: string]: unknown }) {
     for (const source of SUB_SOURCES) this.map.setFeatureState({ source, id }, state);
@@ -380,11 +419,15 @@ export class GlobeView {
   // Frames a region given by its centre and the distance to its farthest point. On the globe the scale at the centre is
   // 2π·R·cos(lat) / (512·2^zoom) km per pixel, so the zoom that fits 2·radius into the open space (inside the padding)
   // follows directly. Works the same across 180°.
+  // If the padding changes while the flight is under way (a round's HUD appears), the zoom is worked out again for it.
+  private framing: { center: LngLat; radiusKm: number; camera: Camera } | null = null;
   frame(center: LngLat, radiusKm: number, duration = 1100) {
     const c = this.map.getContainer(), p = this.padding;
     const px = Math.max(120, Math.min(c.clientWidth - p.left - p.right, c.clientHeight - p.top - p.bottom));
     const zoom = Math.log2((2 * Math.PI * 6371 * Math.cos((center[1] * Math.PI) / 180) * px) / (512 * 2 * radiusKm));
-    this.fly({ center, zoom: Math.max(this.map.getMinZoom(), Math.min(this.map.getMaxZoom(), zoom)) }, duration);
+    const camera = { center, zoom: Math.max(this.map.getMinZoom(), Math.min(this.map.getMaxZoom(), zoom)) };
+    this.framing = { center, radiusKm, camera };
+    this.fly(camera, duration);
   }
 
   // Gathers what is under and near the pointer and lets resolvePick decide (see pick.ts for the rules).
@@ -421,6 +464,8 @@ export class GlobeView {
   setTheme(theme: Theme) {
     if (theme === this.theme || !this.loaded) { this.theme = theme; return; }
     this.theme = theme;
+    this.map.setPaintProperty('sub-fill', 'fill-color', subFill(theme));
+    this.map.setPaintProperty('sub-edge', 'line-color', subFill(theme));
     this.map.setPaintProperty('country-active', 'fill-color', activeColor(theme));
     this.map.setPaintProperty('land-edge-active', 'line-color', activeColor(theme));
     this.map.setPaintProperty('marker-ring', 'circle-color', ringColor(theme));
@@ -505,12 +550,15 @@ export class GlobeView {
     const only = ['==', ['get', 'id'], id] as ExpressionSpecification;
     for (const layer of FLASH_LAYERS) map.setFilter(layer, only);
     map.setPaintProperty('flash-line', 'line-color', color);
+    map.setPaintProperty('sub-flash', 'line-color', color);
     map.setPaintProperty('flash-ring', 'circle-stroke-color', color);
     const start = performance.now();
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / duration), fade = 1 - t * t, swell = Math.sin(Math.min(1, t * 2.5) * Math.PI / 2);
       map.setPaintProperty('flash-line', 'line-width', 1.5 + 2.5 * swell);
       map.setPaintProperty('flash-line', 'line-opacity', fade);
+      map.setPaintProperty('sub-flash', 'line-width', 1.5 + 2.5 * swell);
+      map.setPaintProperty('sub-flash', 'line-opacity', fade);
       map.setPaintProperty('flash-ring', 'circle-radius', 8 + 6 * swell);
       map.setPaintProperty('flash-ring', 'circle-stroke-opacity', fade);
       if (t < 1) this.flashFrame = requestAnimationFrame(step);
@@ -544,6 +592,7 @@ export class GlobeView {
   setPadding(padding: Padding, animate = false) {
     this.padding = padding;
     if (!animate) this.map.setPadding(padding);
+    else if (this.flightTarget && this.framing?.camera === this.flightTarget) this.frame(this.framing.center, this.framing.radiusKm);
     else if (this.flightTarget) this.fly(this.flightTarget);
     else this.map.easeTo({ padding, duration: 600 });
   }

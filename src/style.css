@@ -458,6 +458,14 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
 .sub-list button.on { border-color: rgba(255, 246, 220, 0.6); background: rgba(255, 246, 220, 0.08); }
 .sub-list small { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
 .btn.dev { border-style: dashed; color: var(--ink-2); }
+.sub-modes { display: grid; gap: 8px; }
+.sub-mode { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--panel-line); background: rgba(255, 255, 255, 0.03); }
+.sub-mode strong { display: flex; align-items: center; gap: 7px; font-family: 'Space Grotesk', sans-serif; font-size: 14px; }
+.sub-mode strong svg { width: 15px; height: 15px; color: var(--ink-2); }
+.sub-mode-actions { display: flex; gap: 6px; }
+.sub-mode-actions .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+.sub-mode-actions .btn svg { width: 13px; height: 13px; }
+.sub-mode small { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .hover-name small { font-size: 11px; font-weight: 500; color: var(--ink-3); }
 
 @media (prefers-reduced-motion: reduce) {

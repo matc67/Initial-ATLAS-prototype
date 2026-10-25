@@ -11,6 +11,12 @@ export const FEEDBACK = {
   notInSet: 'That country is not part of the Classic 195.',
   // Several tiny countries sit under the pointer: the map zooms in so the player can choose. Never a mistake.
   tooClose: 'Too close to call. Zoomed in so you can choose.',
+  // Subdivision rounds: the scope is the country played and its own terms ("province or territory"). The clicked place
+  // is never named: these take only the round's own country and terms.
+  units: {
+    ocean: (singular: string) => `That was the ocean. Click a ${singular}.`,
+    outside: (countryName: string) => `That is outside ${countryName}.`,
+  },
 } as const;
 
 // What a player sees the moment an answer lands, worked out from the round before and after it. Pure, so the HUD never

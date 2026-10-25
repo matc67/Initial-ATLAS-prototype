@@ -96,6 +96,9 @@ export const toGameRun = (r: Round, c: GeographyChallenge, now: number, at = new
 
 // ---- Storage --------------------------------------------------------------------------------------------------------------
 const KEY = 'atlas-performance-v2';
+// Subdivision challenges keep their records in a store of their own, so country records, stats and Progress never see
+// them, and existing saved data is never touched. Same record format and functions.
+export const SUBDIVISION_RECORDS_KEY = 'atlas-subdivision-records-v1';
 const LEGACY_RECORDS = 'atlas-records-v1';
 // The old per-country mastery counts ('atlas-progress-v2') are left in storage untouched and are not read: one first-try
 // answer is not proof of knowing a country, so they are not turned into performance records.
@@ -114,9 +117,14 @@ export function loadPerformance(from: Storage | null = storage()): PerformanceSt
   } catch { return {}; }
 }
 
-export function savePerformance(store: PerformanceStore, to: Storage | null = storage()) {
-  try { to?.setItem(KEY, JSON.stringify(store)); } catch { /* storage blocked or full: records last for this visit only */ }
+export function savePerformance(store: PerformanceStore, to: Storage | null = storage(), key = KEY) {
+  try { to?.setItem(key, JSON.stringify(store)); } catch { /* storage blocked or full: records last for this visit only */ }
 }
+
+export function loadSubdivisionRecords(from: Storage | null = storage()): PerformanceStore {
+  try { const raw = from?.getItem(SUBDIVISION_RECORDS_KEY); return raw ? validStore(JSON.parse(raw)) : {}; } catch { return {}; }
+}
+export const saveSubdivisionRecords = (store: PerformanceStore, to: Storage | null = storage()) => savePerformance(store, to, SUBDIVISION_RECORDS_KEY);
 
 // Drops entries that do not look like records (hand-edited or corrupted storage) instead of failing on them later.
 function validStore(v: unknown): PerformanceStore {

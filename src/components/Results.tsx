@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
-import type { Country } from '../data/countries';
+import type { Playable } from '../game/playable';
 import { formatTime, isFirstTry, type Attempt, type NewBests, type Stats } from '../game/scoring';
 import { compareWithBests, isNewRecord, type Comparison, type PersonalBests } from '../game/sprint';
 import { Flag, Icon, useTween } from './ui';
@@ -9,11 +9,12 @@ const wrongList = (ids: string[]) => [...ids.reduce((m, id) => m.set(id, (m.get(
 const pct = (n: number | null) => (n === null ? '–' : `${Math.round(n)}%`);
 
 // The countries not found first try, with what was clicked instead. Shown only once a round is over.
-export function ReviewList({ answers, countries, nameOf }: { answers: Attempt[]; countries: Map<string, Country>; nameOf: (id: string) => string }) {
+// `heading` names what was played ("Countries", "Provinces and territories").
+export function ReviewList({ answers, countries, nameOf, heading = 'Countries' }: { answers: Attempt[]; countries: Map<string, Playable>; nameOf: (id: string) => string; heading?: string }) {
   const review = answers.filter(a => !isFirstTry(a));
   if (!review.length) return null;
   return <>
-    <div className="eyebrow">Countries to review · {review.length}</div>
+    <div className="eyebrow">{heading} to review · {review.length}</div>
     <ul className="answers">{review.map(a => <li key={a.id}>
       <span className="who"><Flag iso2={countries.get(a.id)?.iso2} /><span>{countries.get(a.id)?.name}
         <small>{a.hint ? `Show me${a.mistakes ? ` after ${a.mistakes} wrong` : ''}` : `${a.mistakes} wrong: ${wrongList(a.wrongIds).map(([id, n]) => `${nameOf(id)}${n > 1 ? ` ×${n}` : ''}`).join(', ')}`}</small></span></span>
@@ -42,12 +43,14 @@ type Props = {
   stats: Stats; answers: Attempt[];
   before: PersonalBests | null;   // the records as they stood before this run; null on a first Sprint
   bests: NewBests | null;
-  countries: Map<string, Country>; nameOf: (id: string) => string;
+  countries: Map<string, Playable>; nameOf: (id: string) => string;
   onPlayAgain: () => void; onChange: () => void;
+  heading?: string;          // what was played, for the review list ("Countries" by default)
+  changeLabel?: string;      // "Change challenge", or "Back to Canada" for a subdivision Sprint
 };
 
 // The arcade results: the score out of 1,400 (1,000 base + 400 for a perfect streak), how it compares with the player's bests, and an instant replay.
-export function SprintResults({ area, modeLabel, stats, answers, before, bests, countries, nameOf, onPlayAgain, onChange }: Props) {
+export function SprintResults({ area, modeLabel, stats, answers, before, bests, countries, nameOf, onPlayAgain, onChange, heading, changeLabel = 'Change challenge' }: Props) {
   const rows = compareWithBests({ score: stats.score, accuracy: stats.accuracy ?? 0, ms: stats.elapsedMs, streak: stats.longestStreak, mistakes: stats.totalMistakes }, before);
   const [score, ...tiles] = rows;
   const shown = useTween(stats.score, 650, 0);
@@ -72,9 +75,9 @@ export function SprintResults({ area, modeLabel, stats, answers, before, bests, 
         <small>{c.better ? 'New best' : c.best === null ? '—' : `Best ${show(c, c.best)}`}</small>
       </div>)}
     </div>
-    <ReviewList answers={answers} countries={countries} nameOf={nameOf} />
+    <ReviewList answers={answers} countries={countries} nameOf={nameOf} heading={heading} />
     <button ref={again} className="btn primary big" onClick={onPlayAgain}>Play again <kbd>Enter</kbd></button>
-    <button className="btn" onClick={onChange}>Change challenge</button>
+    <button className="btn" onClick={onChange}>{changeLabel}</button>
     <p className="fine">Personal arcade records, kept in this browser. Each Sprint draws a new random ten, so runs differ in difficulty. Streak bonuses: +50 at 3 in a row, +100 at 5, +250 at 10.</p>
   </div>;
 }

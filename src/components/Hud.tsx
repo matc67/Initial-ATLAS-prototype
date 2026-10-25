@@ -1,7 +1,7 @@
 // The gameplay HUD: the country to find, then time, score, streak and mistakes in large readouts, and the answer
 // feedback. Every effect here is decoration over a round that has already moved on: nothing blocks a click or waits.
 import type { CSSProperties } from 'react';
-import type { Country } from '../data/countries';
+import type { Playable } from '../game/playable';
 import { celebration, FEEDBACK, flameTier, nextAttempt, STREAK_LOST_FROM, type AnswerEvent } from '../game/feedback';
 import { formatTime, pointsFor, type Round, type Stats } from '../game/scoring';
 import { Flag, Icon, useTween } from './ui';
@@ -14,7 +14,8 @@ export const FX_MS = 2400;
 type Props = {
   kindLabel: string | null;   // "Sprint", or null for a Full Challenge
   area: string; mode: 'find' | 'name'; held: boolean;
-  round: Round; stats: Stats; target: Country;
+  round: Round; stats: Stats; target: Playable;
+  unit: string;               // what is asked for, singular: "country", "province or territory"
   message: string;            // a neutral note (the ocean, outside the area…): never a mistake
   miss: string | null;        // set after a wrong answer: '' in Find it, `Not “…”` in Name it
   fx: HudFx | null; now: number;
@@ -49,7 +50,7 @@ export default function Hud(p: Props) {
       {/* Find it shows the flag with the name; Name it keeps both hidden until the answer is revealed. */}
       {p.mode === 'find' || round.phase === 'revealed'
         ? <div className="hud-name"><Flag iso2={p.target.iso2} size="lg" /><div><span className="verb">{p.mode === 'find' ? 'Find' : 'It was'}</span><h2>{p.target.name}</h2></div></div>
-        : <div className="hud-name"><div><span className="verb">Name this country</span><h2 className="muted-name">?</h2></div></div>}
+        : <div className="hud-name"><div><span className="verb">Name this {p.unit}</span><h2 className="muted-name">?</h2></div></div>}
     </div>}
 
     <div className={p.held ? 'hud-readouts held' : 'hud-readouts'}>

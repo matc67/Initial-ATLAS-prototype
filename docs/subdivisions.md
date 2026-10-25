@@ -2,7 +2,7 @@
 
 First-level administrative divisions (states, provinces, territories, prefectures, regions…) for every country, played through the same globe, game engine and records as countries. This document records the decisions taken, how the data is built, and the staged plan. It supersedes the subdivision parts of [geography.md](geography.md).
 
-**Status:** Phase 2 (data pipeline and a development-only Canada map view) is built and awaiting review. Gameplay is not started.
+**Status:** Phase 2 (data pipeline, Canada map view) is approved. Phase 3 (Canadian gameplay: Find the Region and Name the Region, Sprint and full) is built and awaiting review; it is still entered from the development-only Explore view until Phase 4.
 
 ## Decisions
 
@@ -106,6 +106,7 @@ type SubdivisionProps = {
   abbrev?: string;     // official abbreviation ("ON")
   label: [lng, lat];   // a point on the unit's land
   km2: number;
+  frame: { center: [lng, lat]; radiusKm: number };   // where to look to see the whole unit
   color: number;       // 1–7, never shared with a neighbour
   src: { ne: number[]; iso?: string; wikidata?: string };
 };
@@ -160,6 +161,32 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 | Somaliland, Northern Cyprus, Baikonur, Guantánamo Bay | Merged into Somalia, Cyprus, Kazakhstan and Cuba | Separate rows under SOL, CYN, KAB, USG | Each country's profile lists these in `sources` or excludes them, with a reason. Somalia's data in the Somaliland area is incomplete. |
 | Kashmir | India and Pakistan as Natural Earth draws them | IN-JK, IN-LA, PK-GB and PK-JK match the country map | Consistent today; recheck when India is added. |
 
+## Gameplay (Phase 3)
+
+**One engine.** A subdivision round is an ordinary round: `game/scoring.ts` (points, streak bonuses, first-try accuracy, mistakes, Show me, the clock), the HUD, the answer feedback and sounds, the Sprint and full results and the review list are the country ones, unchanged. What differs is data:
+
+- `Game.sub` is the country's subdivision data (null for country rounds) and `Game.places` the targets by id: the country map, or the units (`subdivisionPlayables`). Everything that shows or matches a target goes through `Playable` (`game/playable.ts`: id, name, aliases, a point on its land, a flag or a framing), which a `Country` already is.
+- Challenges come from `subdivisionChallenge(countryId, name, mode, kind, ids)` and `subdivisionKinds(count)`: `can-admin1-sprint-find`, `can-admin1-find`, `can-admin1-sprint-name`, `can-admin1-name`. A Sprint only when the country has at least 10 units.
+- Wording takes the country's own terms: "Name this province or territory", "Provinces and territories to review", "That was the ocean. Click a province or territory." Nothing in the gameplay code names Canada.
+- **Starting a round:** `startSubdivisionRound(countryId, mode, kind)` in `App.tsx`, called from the country's Explore view (development builds for now: Find the Region and Name the Region, each as a 10-question Sprint or all 13). Phase 4 puts the same calls in the real country panel. Leaving a round, or "Back to Canada" on the results, returns to Explore with the country selected and its subdivisions shown.
+
+**Map.** The same globe throughout. In a round the subdivision layer takes the round's statuses (found, missed, answer, target) through `setSubStatuses`, with the same colours as countries (muted until found, steel blue once found, gold target, red missed); other countries fade. Find the Region frames the country; Name the Region frames each target (its `frame` from the build). Show me frames the answer. Hover names appear only for units already found, as for countries.
+
+**Wrong clicks never name the unit.** A wrong click flashes red and counts as a mistake; the HUD says "Incorrect — try again" with the next attempt's points. The clicked unit is recorded by id for the review after the round, as for countries. Clicks on the ocean or another country are explained, never counted.
+
+**Tiny units (Prince Edward Island on a phone).** `resolveSubPick` in `map/pick.ts`, pure and tested: a click on land is the unit under it, unless a unit that is tiny on screen (under 10 px across) is also within the click reach (14 px, 22 px on touch screens); then it is too close to call, the map zooms in two levels, and nothing is counted. Over water, one unit in reach is that unit; several are too close to call. The rule depends only on what is on screen, never on the answer: checked in the browser, a tap between Nova Scotia and PEI zooms in identically whether PEI is the answer or not. No markers were needed for Canada.
+
+**Records.** Subdivision runs go to their own store, `atlas-subdivision-records-v1` (`loadSubdivisionRecords` / `saveSubdivisionRecords`), with the same format and functions as country records. Country records, country stats and Progress never see them, and the country store is not written at all. Keys are the challenge id and version (`can-admin1-find@13-…`), from stable unit ids.
+
+**Phase 3 results** (2026-10-25): typecheck, 134 tests and the production build pass. In the browser on desktop and on a phone with touch: a Find the Region Sprint, a full Find the Region, a full Name the Region and a Name the Region Sprint all played to the end, with a deliberate wrong answer and Show me; wrong clicks named nothing; names were accepted with accents, case and spaces folded and by French names and short forms ("québec", "PEI", "Terre-Neuve-et-Labrador"); records were saved under the subdivision store while the country store stayed byte-for-byte the same; leaving returned to Explore with Canada selected. The country Sprint, Mystery Country and the Canada view still pass.
+
+**Known limitations of Phase 3**
+
+- The only entry is the development Explore view; players get it in Phase 4.
+- Subdivision records are saved but not yet shown in Progress (Phase 4). The Explore view shows each challenge's best.
+- After Show me, the camera stays on the revealed unit, as in country rounds; the player zooms back out (Find the Region does not reframe on its own).
+- On a first run, the full results mark every stat "New best", as country Full Challenges do.
+
 ## Challenges (Phase 3 onwards)
 
 - Ids like `can-admin1-find` and `can-admin1-sprint-name`, with `entityType: 'admin1'` and `scopeId: 'country:CAN'`. The version comes from the target ids, as for countries, so records are only compared between identical lists.
@@ -172,7 +199,7 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 | Phase | Scope | Done when |
 |---|---|---|
 | 2 (built) | Data pipeline; Canada profile; generic subdivision layer; development-only entry | 13 units, exact coast alignment, every unit selectable, existing modes unaffected, all checks pass |
-| 3 | Gameplay: Find the Region and Name the Region on the shared engine; full and Sprint challenges; results | Canada playable end to end; country modes and records unchanged |
+| 3 (built) | Gameplay: Find the Region and Name the Region on the shared engine; full and Sprint challenges; results | Canada playable end to end; country modes and records unchanged |
 | 4 | Explore integration (the real entry point, return to Explore with the country selected) and Progress records per country, mode and challenge | Countries without data show a quiet "not available yet" state |
 | 5 | United States (50 states; a documented policy for Washington, DC and the territories, never silently mixed in); onboarding guide for the next country | A new country is data and configuration only |
 | 6 | Worldwide in reviewed batches (Brazil, Mexico, India, Germany, Japan, Australia, France, Nigeria first); coverage manifest | Each batch validated before the next |
