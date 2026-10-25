@@ -4,6 +4,7 @@
 import { inArea, inSet, type Area, type CountrySet } from '../data/countries.ts';
 import { ROSTER } from '../data/roster.ts';
 import type { EntityType } from '../data/entities.ts';
+import { SCORING_VERSION } from './scoring.ts';
 
 // `map-click`: a polygon (or a ring for tiny countries) is clicked on the globe. `text-entry`: the answer is typed.
 // Future city challenges add `point-click`, a click within a tolerance of a city's coordinates (see docs/geography.md).
@@ -23,9 +24,11 @@ export type GeographyChallenge = {
   scopeId: string;         // the entity the challenge covers: "world", "continent:africa"…
   interaction: Interaction;
   targetIds: string[];     // what is asked (full), or the pool the questions are drawn from (sprint), as map/roster ids
-  // Changes whenever the target list changes (a roster edit, a new country), so records from a different list of
-  // countries are never ranked against this one.
+  // Changes whenever the target list changes (a roster edit, a new country) or the scoring rules change (streak bonuses),
+  // so records from a different list of countries or different rules are never ranked against this one.
   version: string;
+  // The same challenge under scoring version 1 (before streak bonuses), whose records are kept and shown apart.
+  earlierVersion: string;
 };
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -41,6 +44,9 @@ export function versionOf(ids: string[]): string {
   return `${ids.length}-${(h >>> 0).toString(36)}`;
 }
 
+// A version string for a list of targets under a scoring version: version 1 records keep their original, unsuffixed key.
+export const scoredVersion = (list: string, scoring = SCORING_VERSION) => (scoring < 2 ? list : `${list}.sc${scoring}`);
+
 // The roster ids of an area in a country set, the same list a full round plays.
 export const countryIds = (area: Area, set: CountrySet) => ROSTER.filter(r => inArea(r, area) && inSet(r, set)).map(r => r.id);
 
@@ -50,18 +56,18 @@ export function countryChallenge(area: Area, set: CountrySet, mode: GameMode, id
     name: `${area === 'World' ? 'World' : area} countries`, kind: 'full', size: ids.length,
     entityType: 'country', scopeId: SCOPE[area],
     interaction: mode === 'find' ? 'map-click' : 'text-entry',
-    targetIds: ids, version: versionOf(ids),
+    targetIds: ids, version: scoredVersion(versionOf(ids)), earlierVersion: versionOf(ids),
   };
 }
 
 // A Sprint draws 10 of the area's countries at random for each run. Its records are kept apart from the full challenge's
 // (a different id), and each run's ten differ, so they are personal arcade records rather than like-for-like rankings.
-// The version follows the pool and the run size, so a roster change or a different size starts fresh records.
+// The version follows the pool, the run size and the scoring rules, so changing any of them starts fresh records.
 export function sprintChallenge(area: Area, set: CountrySet, mode: GameMode, pool = countryIds(area, set)): GeographyChallenge {
   return {
     ...countryChallenge(area, set, mode, pool),
     id: `${slug(area)}-sprint${set === '195' ? '-classic' : ''}-${mode}`,
     name: `${area === 'World' ? 'World' : area} Sprint`, kind: 'sprint', size: SPRINT_SIZE,
-    version: `s${SPRINT_SIZE}-${versionOf(pool)}`,
+    version: scoredVersion(`s${SPRINT_SIZE}-${versionOf(pool)}`), earlierVersion: `s${SPRINT_SIZE}-${versionOf(pool)}`,
   };
 }

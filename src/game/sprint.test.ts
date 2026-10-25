@@ -60,16 +60,17 @@ test('a pool smaller than 10 is reported, not shortened', () => {
   assert.ok(ten.ok && ten.queue.length === 10);
 });
 
-test('Sprint scoring: 1,000 for a perfect run, normal points otherwise', () => {
+test('Sprint scoring: 1,400 for a perfect run (1,000 base + 400 streak bonus), normal points otherwise', () => {
   const plan = planSprint(countryIds('Europe', '200'), seeded(3));
   assert.ok(plan.ok);
   const perfect = playSprint(plan.queue);
   const s = statsOf(perfect.round, perfect.now);
-  assert.deepEqual([perfect.round.phase, s.score, s.maxScore, s.accuracy, s.perfect, s.longestStreak], ['done', 1000, 1000, 100, true, 10]);
-  // 2nd, 3rd and 5th attempts plus one Show me: 100×6 + 50 + 25 + 10 + 0 = 685.
+  assert.deepEqual([perfect.round.phase, s.score, s.maxScore, s.accuracy, s.perfect, s.longestStreak], ['done', 1400, 1400, 100, true, 10]);
+  assert.deepEqual([s.base, s.bonus], [1000, 400]);
+  // 2nd, 3rd and 5th attempts plus one Show me: 100×6 + 50 + 25 + 10 + 0 = 685. No streak reaches 3, so no bonus.
   const mixed = playSprint(plan.queue, [0, 1, 0, 2, 0, 4, 0, 'hint', 0, 0]);
   const m = statsOf(mixed.round, mixed.now);
-  assert.deepEqual([m.score, m.firstTryCorrect, m.totalMistakes, m.hintsUsed, m.perfect, m.longestStreak], [685, 6, 7, 1, false, 2]);
+  assert.deepEqual([m.score, m.bonus, m.firstTryCorrect, m.totalMistakes, m.hintsUsed, m.perfect, m.longestStreak], [685, 0, 6, 7, 1, false, 2]);
 });
 
 test('the Sprint clock counts active time only and stops at the tenth country', () => {
@@ -100,7 +101,7 @@ test('personal bests update run by run, with accuracy ranked before speed', () =
   const plan = planSprint(c.targetIds, seeded(11));
   assert.ok(plan.ok);
   const run = (p: (number | 'hint')[], step: number) => { const g = playSprint(plan.queue, p, step); return toGameRun(g.round, c, g.now, '2026-10-24T10:00:00Z'); };
-  const first = addRun(undefined, run([0, 1], 3000));                 // 950, 2 s slower per step
+  const first = addRun(undefined, run([0, 1], 3000));                 // 950 + 150 (a streak of 8: bonuses at 3 and 5)
   assert.equal(bestsOf(undefined), null);
   const before = bestsOf(first.performance)!;
   const fastSloppy = run([1, 1, 1], 500);
@@ -108,13 +109,13 @@ test('personal bests update run by run, with accuracy ranked before speed', () =
   const at = (stat: string) => cmp.find(r => r.stat === stat)!;
   assert.equal(at('time').better, true);
   assert.equal(at('score').better, false);
-  assert.equal(at('score').delta, 850 - 950);
+  assert.equal(at('score').delta, (850 + 150) - (950 + 150));
   const second = addRun(first.performance, fastSloppy);
   assert.equal(second.bests.run, false);                              // faster, but less accurate: not the best run
   assert.equal(second.performance.fastestMs, fastSloppy.activeTimeMs); // still the fastest time
   const third = addRun(second.performance, run([], 400));             // perfect and fastest
   assert.deepEqual([third.bests.run, third.bests.score, third.performance.perfectRuns, third.performance.runs], [true, true, 1, 3]);
-  assert.equal(third.performance.bestScore, 1000);
+  assert.equal(third.performance.bestScore, 1400);
   // First run: nothing to beat, so no line reports "better".
   assert.ok(compareWithBests(summarize(run([], 400)), null).every(r => !r.better && r.best === null));
 });
@@ -136,7 +137,7 @@ test('Sprint records persist through storage next to existing Full Challenge rec
   savePerformance({ ...loaded, [perfKey(sprint)]: addRun(loaded[perfKey(sprint)], toGameRun(g.round, sprint, g.now)).performance }, store);
   const after = loadPerformance(store);
   assert.deepEqual(after[perfKey(full)], saved[perfKey(full)]);       // untouched
-  assert.equal(after[perfKey(sprint)].bestScore, 1000);
-  assert.equal(after[perfKey(sprint)].best.maxScore, 1000);
+  assert.equal(after[perfKey(sprint)].bestScore, 1400);
+  assert.equal(after[perfKey(sprint)].best.maxScore, 1400);
   assert.equal(after[perfKey(sprint)].latestRun?.results.length, 10);
 });

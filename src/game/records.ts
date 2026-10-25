@@ -1,6 +1,6 @@
 // Completed runs and personal records, per challenge, kept in this browser. Pure functions first, then storage.
 // Only completed full challenges are recorded: a quick round or an abandoned run never touches these records.
-import { compareRuns, elapsed, isFirstTry, MAX_POINTS, type Attempt, type NewBests, type Round, type RunRecord } from './scoring.ts';
+import { compareRuns, elapsed, isFirstTry, MAX_POINTS, maxScoreFor, SCORING_VERSION, scoreOf, streaksOf, type Attempt, type NewBests, type Round, type RunRecord } from './scoring.ts';
 import { countryChallenge, type GameMode, type GeographyChallenge } from './challenges.ts';
 import type { Area, CountrySet } from '../data/countries.ts';
 
@@ -9,13 +9,15 @@ export type GameRun = {
   id: string;
   challengeId: string;
   version: string;          // the challenge version it was played against
+  scoring?: number;         // the scoring rules it was played under (SCORING_VERSION); absent = 1, before streak bonuses
   completedAt: string;      // ISO date
   activeTimeMs: number;
   results: Attempt[];       // one per country: points, mistakes, the wrong guesses, Show me
 };
 // A run's headline numbers, kept for history and charts even after the full run is dropped.
-// `hints` is unknown (absent) only for a best run carried over from version 1 records.
-export type RunSummary = RunRecord & { runId: string; at: string; missed: number; hints?: number };
+// `hints` is unknown (absent) only for a best run carried over from version 1 records. `score` is the total; `base`,
+// `bonus` and `countries` were added with streak bonuses (scoring version 2) and are absent from older summaries.
+export type RunSummary = RunRecord & { runId: string; at: string; missed: number; hints?: number; base?: number; bonus?: number; countries?: number };
 
 export type Performance = {
   challengeId: string; version: string;
@@ -36,24 +38,24 @@ export type PerformanceStore = { [key: string]: Performance };
 // Records are kept per challenge *version*: if the country list changes, older records stay but are not compared.
 export const perfKey = (c: Pick<GeographyChallenge, 'id' | 'version'>) => `${c.id}@${c.version}`;
 
-export function longestStreak(results: Attempt[]): number {
-  let best = 0, run = 0;
-  for (const a of results) { run = isFirstTry(a) ? run + 1 : 0; best = Math.max(best, run); }
-  return best;
-}
+export const longestStreak = (results: Attempt[]) => Math.max(0, ...streaksOf(results));
 
+// Scored by the same function as the HUD (scoreOf), under the rules the run was played with.
 export function summarize(run: GameRun): RunSummary {
   const r = run.results, first = r.filter(isFirstTry).length, mistakes = r.reduce((n, a) => n + a.mistakes, 0), hints = r.filter(a => a.hint).length;
+  const scoring = run.scoring ?? 1, { base, bonus, total } = scoreOf(r, scoring);
   return {
     runId: run.id, at: run.completedAt,
-    score: r.reduce((n, a) => n + a.points, 0), maxScore: r.length * MAX_POINTS,
+    score: total, base, bonus, countries: r.length, maxScore: maxScoreFor(r.length, scoring),
     accuracy: r.length ? (first / r.length) * 100 : 0, mistakes, missed: r.length - first, hints,
     ms: run.activeTimeMs, streak: longestStreak(r), perfect: r.length > 0 && first === r.length && mistakes === 0 && hints === 0,
   };
 }
 
 const NO_TOTALS: Totals = { runs: 0, answered: 0, firstTry: 0 };
-const answeredIn = (s: RunSummary) => Math.round(s.maxScore / MAX_POINTS);
+// Countries in a run. Summaries from before streak bonuses do not store it, but their maximum was 100 per country.
+export const countriesIn = (s: RunSummary) => s.countries ?? Math.round(s.maxScore / MAX_POINTS);
+const answeredIn = countriesIn;
 const addTotals = (t: Totals, s: RunSummary): Totals => ({ runs: t.runs + 1, answered: t.answered + answeredIn(s), firstTry: t.firstTry + answeredIn(s) - s.missed });
 // A record's totals: kept since v0.2.2, or rebuilt from the runs its history still holds. Runs older than the history
 // (and records carried over from v1, which kept no runs) are not counted, and `runs` says how many were.
@@ -90,7 +92,7 @@ export function addRun(prev: Performance | undefined, run: GameRun): { performan
 
 const newRunId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 export const toGameRun = (r: Round, c: GeographyChallenge, now: number, at = new Date().toISOString()): GameRun =>
-  ({ id: newRunId(), challengeId: c.id, version: c.version, completedAt: at, activeTimeMs: elapsed(r.clock, now), results: r.answers });
+  ({ id: newRunId(), challengeId: c.id, version: c.version, scoring: SCORING_VERSION, completedAt: at, activeTimeMs: elapsed(r.clock, now), results: r.answers });
 
 // ---- Storage --------------------------------------------------------------------------------------------------------------
 const KEY = 'atlas-performance-v2';
@@ -125,7 +127,8 @@ function validStore(v: unknown): PerformanceStore {
 
 type LegacyRecords = { runs: number; perfectRuns: number; bestScore: number; bestAccuracy: number; fewestMistakes: number; fastestMs: number; longestStreak: number; best: RunRecord; at: string };
 // Version 1 records were saved only for completed full challenges, so their numbers are real results and are kept. They
-// stored no per-country results or run list, so the Progress globe and run history start with the next run.
+// stored no per-country results or run list, so the Progress globe and run history start with the next run. They were
+// scored before streak bonuses, so they go to the challenge's earlier (scoring version 1) record.
 export function migrateRecordsV1(old: { [key: string]: LegacyRecords }): PerformanceStore {
   const out: PerformanceStore = {};
   for (const [key, r] of Object.entries(old ?? {})) {
@@ -133,8 +136,8 @@ export function migrateRecordsV1(old: { [key: string]: LegacyRecords }): Perform
     if (!r?.best || typeof r.runs !== 'number' || !['200', '195'].includes(set) || !['find', 'name'].includes(mode)) continue;
     const c = countryChallenge(area as Area, set as CountrySet, mode as GameMode);
     if (!c.targetIds.length) continue;
-    out[perfKey(c)] = {
-      challengeId: c.id, version: c.version, runs: r.runs, perfectRuns: r.perfectRuns,
+    out[perfKey({ id: c.id, version: c.earlierVersion })] = {
+      challengeId: c.id, version: c.earlierVersion, runs: r.runs, perfectRuns: r.perfectRuns,
       bestScore: r.bestScore, bestAccuracy: r.bestAccuracy, fewestMistakes: r.fewestMistakes, fastestMs: r.fastestMs, longestStreak: r.longestStreak,
       best: { ...r.best, runId: 'legacy', at: r.at, missed: Math.round(c.targetIds.length * (1 - r.best.accuracy / 100)) }, history: [],
     };

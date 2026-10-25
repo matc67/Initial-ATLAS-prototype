@@ -98,7 +98,10 @@ test('storage round-trips, survives corrupt data, and keeps version 1 records wi
     'junk': 5,
   }));
   const migrated = loadPerformance(legacy);
-  const sa = migrated[perfKey(countryChallenge('South America', '200', 'find'))];
+  // Version 1 records were scored before streak bonuses, so they go to the earlier-scoring record, not the current one.
+  const saChallenge = countryChallenge('South America', '200', 'find');
+  assert.equal(migrated[perfKey(saChallenge)], undefined);
+  const sa = migrated[perfKey({ id: saChallenge.id, version: saChallenge.earlierVersion })];
   assert.equal(Object.keys(migrated).length, 1);
   assert.deepEqual([sa.runs, sa.bestScore, sa.fastestMs, sa.best.score], [2, 1200, 17_000, 1200]);
   assert.equal(sa.bestRun, undefined);   // no per-country results existed, so none are made up

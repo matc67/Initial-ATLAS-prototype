@@ -98,6 +98,8 @@ const LAND_EDGE = ['interpolate', ['linear'], ['zoom'], 1, 1.1, 4, 0.9, 7, 0.6] 
 // Region fades: each country carries an `act` feature-state from 0 (neutral land) to 1 (full colour) that is animated per
 // country. Layers and their filters never change, so a region switch never makes MapLibre rebuild its tiles.
 const FADE_MS = 450;
+// How long an answer pulse stays on the map; its animation (style.css .answer-pulse) ends a little before.
+const PULSE_MS = 800;
 const act = ['coalesce', ['feature-state', 'act'], 0] as ExpressionSpecification;
 const RELIEF_BOUNDS: [[number, number], [number, number], [number, number], [number, number]] = [[-180, 85.0511], [180, 85.0511], [180, -85.0511], [-180, -85.0511]];
 
@@ -128,6 +130,7 @@ export class GlobeView {
   private flightTarget: Camera | null = null;
   private focusId: string | null = null;
   private cities: { el: HTMLElement; at: LngLat; marker: maplibregl.Marker }[] = [];
+  private pulses = new Set<{ marker: maplibregl.Marker; timer: ReturnType<typeof setTimeout> }>();
   private rings: { id: string; at: LngLat }[] = [];
   private small = new Set<string>();
   // How far from a ring a click still counts for it: wider for touch (see pick.ts).
@@ -388,6 +391,18 @@ export class GlobeView {
     this.flashFrame = requestAnimationFrame(step);
   }
 
+  // Where an answer landed: a green ring with the points won, or a red ring with ✕. An HTML marker, so it follows the
+  // camera; it never takes clicks, names nothing, and removes itself after PULSE_MS (the CSS animation is shorter).
+  pulse(at: LngLat, kind: 'good' | 'bad', label: string, sub?: string) {
+    const el = document.createElement('div');
+    el.className = `answer-pulse ${kind}`;
+    el.innerHTML = '<i></i><b></b>';
+    el.querySelector('b')!.textContent = label;
+    if (sub) el.append(Object.assign(document.createElement('small'), { textContent: sub }));
+    const p = { marker: new maplibregl.Marker({ element: el }).setLngLat(at).addTo(this.map), timer: setTimeout(() => { p.marker.remove(); this.pulses.delete(p); }, PULSE_MS) };
+    this.pulses.add(p);
+  }
+
   // Every flight carries the current padding: a separate padding animation would cancel a flight already under way.
   fly(camera: Camera, duration = 1100) {
     this.flightTarget = camera;
@@ -408,5 +423,9 @@ export class GlobeView {
 
   zoomBy(delta: number) { this.map.easeTo({ zoom: this.map.getZoom() + delta, duration: 300 }); }
 
-  destroy() { cancelAnimationFrame(this.flashFrame); cancelAnimationFrame(this.fadeFrame); this.setCities([]); this.map.remove(); }
+  destroy() {
+    cancelAnimationFrame(this.flashFrame); cancelAnimationFrame(this.fadeFrame); this.setCities([]);
+    for (const p of this.pulses) { clearTimeout(p.timer); p.marker.remove(); }
+    this.map.remove();
+  }
 }

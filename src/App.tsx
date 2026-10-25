@@ -1,25 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import Starfield from './components/Starfield';
 import ChallengePicker from './components/ChallengePicker';
+import Hud, { type HudFx } from './components/Hud';
 import ProgressPanel from './components/ProgressPanel';
 import RegionNav from './components/RegionNav';
-import { ReviewList, SprintResults } from './components/Results';
+import { Burst, ReviewList, ScoreBreakdown, SprintResults } from './components/Results';
 import { Flag, Icon } from './components/ui';
 import { AMERICAS, AREA_CAMERA, SET_LABEL, STATUS_LABEL, TABS, inArea, inSet, indexCountries, tabOf, type Area, type Country, type CountrySet } from './data/countries';
 import type { LngLat } from './game/geo';
 import { preloadFlags } from './data/flags';
 import { capitalsOf, loadPlaces, lngLat, type City, type PlacesFile } from './data/places';
 import { countryChallenge, sprintChallenge, type ChallengeKind, type GameMode, type GeographyChallenge } from './game/challenges';
-import { FEEDBACK } from './game/feedback';
+import { answerEvent, FEEDBACK, type AnswerEvent } from './game/feedback';
 import { nameMatches } from './game/names';
 import { addRun, loadPerformance, perfKey, savePerformance, toGameRun, type GameRun } from './game/records';
 import { pickRound } from './game/round';
 import { bestsOf, planSprint, type PersonalBests } from './game/sprint';
 import {
-  ATTEMPT_POINTS, LATE_POINTS, STREAK_MILESTONES, formatTime, guess as guessRound, isCompleted, isPaused, newRound, next as nextRound,
-  pause, pointsFor, resume, reveal as revealRound, statsOf, targetOf, typedGuess,
+  ATTEMPT_POINTS, LATE_POINTS, STREAK_MILESTONES, bonusesOf, formatTime, guess as guessRound, isCompleted, isPaused, newRound, next as nextRound,
+  pause, resume, reveal as revealRound, statsOf, targetOf, typedGuess,
   type Attempt, type NewBests, type Round,
 } from './game/scoring';
+import { loadSound, play as playSound, saveSound } from './sound';
 import { PACIFIC_VIEWS, type RegionView } from './map/regions';
 import { COLORS, GlobeView, type Camera, type Land, type StatusMap, type Theme } from './map/GlobeView';
 
@@ -32,16 +34,16 @@ type Game = {
   kind: ChallengeKind;     // a Full Challenge or a 10-Country Sprint; each keeps its own records
   round: Round;
   held: boolean;           // paused with the pause button (the clock also pauses for hidden tabs, Help or other views)
-  message: string;
-  // The points just won, shown briefly beside the next question. `key` restarts its animation for each new answer.
-  gain: { points: number; key: number } | null;
+  message: string;         // a neutral note: the ocean, land outside the game… never a mistake
+  miss: string | null;     // after a wrong answer, until the next answer or note: '' in Find it, `Not “…”` in Name it
+  fx: HudFx | null;        // the latest answer's feedback, played once by the HUD while the next question is live
   bests: NewBests | null;  // set when the run finishes
   before: PersonalBests | null; // the records as they stood before this run, for the results comparison
 };
 
 const FLASH_GOOD = COLORS.good, FLASH_BAD = COLORS.bad, FLASH_SELECT = '#fff6dc';
-// A wrong guess flashes red only briefly; the player can click again at once.
-const WRONG_FLASH_MS = 220;
+// A wrong guess flashes red only briefly (the country is never recoloured); the player can click again at once.
+const WRONG_FLASH_MS = 320;
 // Flags fetched ahead of the current question (all 200 together are 2 MB, too much to fetch at once on a phone).
 const FLAGS_AHEAD = 4;
 const isMobile = () => window.innerWidth <= 760;
@@ -87,6 +89,12 @@ export default function App() {
   const [places, setPlaces] = useState<PlacesFile | null>(null);
   const [placesError, setPlacesError] = useState(false);
   const [countrySet, setCountrySet] = useState<CountrySet>(loadSet);
+  // Arcade sounds: off until the player turns them on, then remembered.
+  const [sound, setSound] = useState(loadSound);
+  const soundRef = useRef(sound);
+  const toggleSound = () => { const on = !sound; setSound(on); soundRef.current = on; saveSound(on); if (on) playSound('correct'); };
+  const cue = (c: Parameters<typeof playSound>[0]) => { if (soundRef.current) playSound(c); };
+  const fxKey = useRef(0);
   useEffect(() => { try { localStorage.setItem(SET_KEY, countrySet); } catch { /* storage blocked: the choice lasts for this visit */ } }, [countrySet]);
 
   // Explore and Progress always cover all 200; rounds use the chosen set.
@@ -104,6 +112,11 @@ export default function App() {
   const progressRecord = progressKind === 'sprint' ? sprintRecord : record;
   const shownRun: GameRun | undefined = runView === 'best' ? progressRecord?.bestRun : progressRecord?.latestRun ?? progressRecord?.bestRun;
   const runResults = useMemo(() => new Map(shownRun?.results.map(a => [a.id, a]) ?? []), [shownRun]);
+  // The streak bonus each country of that run earned, under the rules it was played with.
+  const runBonuses = useMemo(() => {
+    const b = shownRun ? bonusesOf(shownRun.results, shownRun.scoring ?? 1) : [];
+    return new Map(shownRun?.results.map((a, i) => [a.id, b[i]]) ?? []);
+  }, [shownRun]);
 
   // Map events arrive outside React, so they always call the latest handlers through this ref.
   const handlers = useRef({ pick: (_id: string | null, _at: LngLat, _land?: Land, _ambiguous?: string[]) => {}, hover: (_id: string | null) => {} });
@@ -122,8 +135,8 @@ export default function App() {
   // Centre the globe in the open space: beside the side panel, or under the question card during a round.
   useEffect(() => {
     const pad = (animate: boolean) => globeRef.current?.setPadding(isMobile()
-      ? { left: 0, right: 0, top: inRound ? 180 : 110, bottom: inRound ? 130 : window.innerHeight * 0.42 }
-      : inRound ? { left: 100, right: 100, top: 190, bottom: 100 } : { left: 110, right: 370, top: 90, bottom: 60 }, animate);
+      ? { left: 0, right: 0, top: inRound ? 236 : 110, bottom: inRound ? 130 : window.innerHeight * 0.42 }
+      : inRound ? { left: 100, right: 100, top: 236, bottom: 100 } : { left: 110, right: 370, top: 90, bottom: 60 }, animate);
     pad(true);
     const onResize = () => pad(false);
     window.addEventListener('resize', onResize);
@@ -182,7 +195,7 @@ export default function App() {
     setSelected(null);
     setSelectedLand(null);
     setHelp(false);
-    commit({ mode: m, area: a, set: countrySet, challenge: c, kind, round: newRound(queue, performance.now()), held: false, message: '', gain: null, bests: null, before: null });
+    commit({ mode: m, area: a, set: countrySet, challenge: c, kind, round: newRound(queue, performance.now()), held: false, message: '', miss: null, fx: null, bests: null, before: null });
     setGuess('');
     const first = countries.get(queue[0]);
     if (m === 'name' && first) flyToCountry(first); else globeRef.current?.fly(fit(AREA_CAMERA[a]));
@@ -192,9 +205,9 @@ export default function App() {
   const warmFlags = (queue: string[], index: number) => preloadFlags(queue.slice(index, index + FLAGS_AHEAD).map(id => countries.get(id)?.iso2));
 
   // Applies a new Round: moves the camera for the next question and, when the run ends, saves it and updates the
-  // challenge's personal records. Everything visible changes in this one update.
-  function apply(g: Game, r: Round, message: string) {
-    const answered = r.answers.length > g.round.answers.length ? r.answers.at(-1)! : null;
+  // challenge's personal records. Everything visible changes in this one update. `event` is the answer's feedback (from
+  // answerEvent), `lost` the streak a mistake or Show me just ended, `miss` the wrong-answer note.
+  function apply(g: Game, r: Round, message: string, { event = null, lost = 0, miss = null }: { event?: AnswerEvent | null; lost?: number; miss?: string | null } = {}) {
     const moved = r.index !== g.round.index || (r.phase === 'done' && g.round.phase !== 'done');
     let bests: NewBests | null = g.bests, before = g.before;
     if (r.phase === 'done' && g.round.phase !== 'done') {
@@ -208,13 +221,21 @@ export default function App() {
       setRunView('latest');
       setProgressKind(g.kind);
       bests = result.bests;
+      if (before && result.bests.run) setTimeout(() => cue('record'), 350);
     } else if (moved && g.mode === 'name') {
       const c = countries.get(r.queue[r.index]);
       if (c) flyToCountry(c);
     }
     if (moved) { setGuess(''); warmFlags(r.queue, r.index + 1); }
-    const gain = answered && answered.points > 0 && !answered.hint ? { points: answered.points, key: r.answers.length } : moved ? null : g.gain;
-    commit({ ...g, round: r, message, gain, bests, before });
+    const fx = event || lost ? { key: ++fxKey.current, at: performance.now(), event, lost } : g.fx;
+    if (event) cue(event.kind === 'wrong' ? 'wrong' : event.milestone ? 'milestone' : 'correct');
+    commit({ ...g, round: r, message, miss, fx, bests, before });
+  }
+
+  // The globe's half of the feedback, where the answer landed: the points won, or ✕. Never a name.
+  function pulseAt(at: LngLat, e: AnswerEvent) {
+    if (e.kind === 'wrong') globeRef.current?.pulse(at, 'bad', '✕');
+    else globeRef.current?.pulse(at, 'good', `+${e.points}`, e.bonus ? `+${e.bonus} bonus` : undefined);
   }
 
   handlers.current.hover = setHoverId;
@@ -227,7 +248,7 @@ export default function App() {
       if (open.length === 1) id = open[0];
       else {
         globeRef.current?.fly({ center: at, zoom: Math.min(8, globeRef.current.map.getZoom() + 2) }, 700);
-        if (view === 'play' && g && g.round.phase === 'asking') commit({ ...g, message: FEEDBACK.tooClose });
+        if (view === 'play' && g && g.round.phase === 'asking') commit({ ...g, message: FEEDBACK.tooClose, miss: null });
         return;
       }
     }
@@ -240,16 +261,18 @@ export default function App() {
     if (!g || g.mode !== 'find' || g.round.phase !== 'asking' || isPaused(g.round)) return;
     // Clicks on the ocean, unplayable land, other areas or other country sets are explained but never count as mistakes,
     // and no message names what was clicked (see game/feedback.ts).
-    if (!id) { commit({ ...g, message: land ? FEEDBACK.notInGame : FEEDBACK.ocean }); return; }
+    if (!id) { commit({ ...g, message: land ? FEEDBACK.notInGame : FEEDBACK.ocean, miss: null }); return; }
     const clicked = countries.get(id)!;
-    if (!inArea(clicked, g.area)) { commit({ ...g, message: FEEDBACK.outsideArea(areaTitle(g.area)) }); return; }
-    if (!inSet(clicked, g.set)) { commit({ ...g, message: FEEDBACK.notInSet }); return; }
+    if (!inArea(clicked, g.area)) { commit({ ...g, message: FEEDBACK.outsideArea(areaTitle(g.area)), miss: null }); return; }
+    if (!inSet(clicked, g.set)) { commit({ ...g, message: FEEDBACK.notInSet, miss: null }); return; }
     const { round: r, outcome } = guessRound(g.round, id, performance.now());
-    if (outcome === 'ignored') return;
-    if (outcome === 'correct') { globeRef.current?.flash(id, FLASH_GOOD, 500); apply(g, r, ''); return; }
+    const event = answerEvent(g.round, r, outcome);
+    if (!event) return;
+    pulseAt(at, event);
+    if (event.kind === 'correct') { globeRef.current?.flash(id, FLASH_GOOD, 500); apply(g, r, '', { event }); return; }
     // The wrong country is recorded by id for scoring and the results review, flashes red briefly, and stays unnamed.
     globeRef.current?.flash(id, FLASH_BAD, WRONG_FLASH_MS);
-    apply(g, r, FEEDBACK.wrong);
+    apply(g, r, '', { event, lost: event.lostStreak, miss: '' });
   };
 
   function submitName(e: FormEvent) {
@@ -258,16 +281,20 @@ export default function App() {
     if (!g || !t || !guess.trim()) return;
     const right = nameMatches(t, guess);
     const { round: r, outcome } = typedGuess(g.round, guess, right, performance.now());
-    if (outcome === 'ignored') return;
+    const event = answerEvent(g.round, r, outcome);
+    if (!event) return;
+    // Name it has no click: the feedback lands on the gold target, which is already shown.
+    pulseAt(t.center, event);
     globeRef.current?.flash(t.id, right ? FLASH_GOOD : FLASH_BAD, right ? 500 : WRONG_FLASH_MS);
-    apply(g, r, right ? '' : `Not “${guess.trim()}”.`);
+    if (event.kind === 'correct') apply(g, r, '', { event });
+    else apply(g, r, '', { event, lost: event.lostStreak, miss: `Not “${guess.trim()}”` });
     setGuess('');
   }
 
   function reveal() {
     const g = gameRef.current, t = g && countries.get(targetOf(g.round) ?? '');
     if (!g || !t) return;
-    apply(g, revealRound(g.round, performance.now()), 'The answer is shown in gold.');
+    apply(g, revealRound(g.round, performance.now()), 'The answer is shown in gold.', { lost: g.round.streak });
     if (g.mode === 'find') flyToCountry(t);
   }
 
@@ -384,43 +411,14 @@ export default function App() {
         <li><span className="k done" />In a round, countries you find turn steel blue.</li>
         <li><span className="k miss" />Dashed red: missed. Gold: the answer.</li>
       </ul>
-      <p className="fine">Points: {ATTEMPT_POINTS.join(', ')} for the 1st, 2nd and 3rd attempt, then {LATE_POINTS}. Show me gives 0. Time never changes points; it only separates runs that are equally accurate.</p>
+      <p className="fine">Points: {ATTEMPT_POINTS.join(', ')} for the 1st, 2nd and 3rd attempt, then {LATE_POINTS}. Show me gives 0. Streak bonuses for first-try answers in a row: {STREAK_MILESTONES.map(m => `+${m.bonus.toLocaleString()} at ${m.streak}`).join(', ')}. Time never changes points; it only separates runs that are equally accurate.</p>
     </aside>}
 
-    {inRound && game && round && target && stats && <section className="hud" aria-live="polite">
-      <div className="hud-top">
-        <span className="hud-area">{game.kind === 'sprint' && <><Icon name="bolt" />Sprint · </>}{areaShort(game.area)}</span>
-        <div className="bar"><div style={{ width: `${(stats.completed / stats.total) * 100}%` }} /></div>
-        <span className="hud-count"><b>{stats.completed}</b> / {stats.total}</span>
-        <span className={stats.totalMistakes ? 'hud-chip bad' : 'hud-chip'} title="Incorrect guesses">✕ {stats.totalMistakes}</span>
-        <span className="hud-chip" title="Active time"><Icon name="clock" />{formatTime(stats.elapsedMs)}</span>
-        <button className="icon-btn" aria-label={game.held ? 'Resume' : 'Pause'} onClick={() => hold(!game.held)}><Icon name={game.held ? 'play-small' : 'pause'} /></button>
-        <button className="close" aria-label="End round" onClick={() => commit(null)}>×</button>
-      </div>
-      {game.held ? <div className="hud-main paused">
-        <div className="hud-name"><div><span className="verb">Paused</span><h2>Take your time</h2></div></div>
-        <button className="btn primary small" onClick={() => hold(false)}>Resume</button>
-      </div> : <>
-        <div className="hud-main">
-          {/* Find it shows the flag with the name; Name it keeps both hidden until the answer is revealed. */}
-          {game.mode === 'find' || round.phase === 'revealed'
-            ? <div className="hud-name"><Flag iso2={target.iso2} size="lg" /><div><span className="verb">{game.mode === 'find' ? 'Find' : 'It was'}</span><h2>{target.name}</h2></div></div>
-            : <div className="hud-name"><div><span className="verb">Name this country</span><h2 className="muted-name">?</h2></div></div>}
-          {/* Plays on its own while the next question is already live. */}
-          {game.gain && game.gain.key === round.answers.length && <span className="gain" key={game.gain.key}>✓ +{game.gain.points}</span>}
-        </div>
-        <div className="hud-line">
-          <span className={game.message ? 'hud-msg bad' : 'hud-msg'}>{game.message || (game.mode === 'find' ? 'Click it on the globe' : 'Type its name below')}</span>
-          <span className="hud-meta">
-            <b>{stats.score.toLocaleString()} pts</b>
-            <span className={round.streak === 0 ? 'streak off' : STREAK_MILESTONES.includes(round.streak) ? 'streak milestone' : 'streak'} key={round.streak} title="Perfect streak">🔥 {round.streak}</span>
-            {round.phase === 'revealed'
-              ? <button className="btn primary small" onClick={next}>{round.index + 1 >= round.queue.length ? 'See results' : 'Next'} <kbd>Enter</kbd></button>
-              : <>Attempt {round.wrong.length + 1} · {pointsFor(round.wrong.length, false)} pts<button className="link" onClick={reveal}>Show me</button></>}
-          </span>
-        </div>
-      </>}
-    </section>}
+    {inRound && game && round && target && stats && <Hud
+      kindLabel={game.kind === 'sprint' ? 'Sprint' : null} area={areaShort(game.area)} mode={game.mode} held={game.held}
+      round={round} stats={stats} target={target} message={game.message} miss={game.miss} fx={game.fx} now={performance.now()}
+      sound={sound} onSound={toggleSound}
+      onHold={hold} onEnd={() => commit(null)} onReveal={reveal} onNext={next} />}
 
     {inRound && game?.area === 'Oceania' && !game.held && <RegionNav label="Pacific" views={PACIFIC_VIEWS} active={regionView} onPick={goToRegion} />}
 
@@ -442,7 +440,7 @@ export default function App() {
           <button role="radio" aria-checked={mode === 'name'} className={mode === 'name' ? 'on' : ''} onClick={() => setMode('name')}>Name it</button>
           <button disabled title="Coming next">Complete <em>soon</em></button>
         </div>
-        <p className="muted">{mode === 'find' ? 'We name a country; you click it on the globe.' : 'A country lights up in gold; you type its name.'} Get it first try for {ATTEMPT_POINTS[0]} points; every mistake costs points and breaks your streak.</p>
+        <p className="muted">{mode === 'find' ? 'We name a country; you click it on the globe.' : 'A country lights up in gold; you type its name.'} Get it first try for {ATTEMPT_POINTS[0]} points, and 3, 5 or 10 in a row for a streak bonus. Every mistake costs points and breaks your streak.</p>
         <ChallengePicker area={areaShort(area)} loading={loading} poolSize={playIds.length}
           sprintBest={sprintRecord} fullBest={record} onSprint={() => startRound({ kind: 'sprint' })} onFull={() => startRound()} />
       </>}
@@ -454,7 +452,8 @@ export default function App() {
 
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'full' && <>
         <div className="eyebrow">{areaShort(game.area)} Challenge Complete · {stats.total} Countries · {game.mode === 'find' ? 'Find it' : 'Name it'}</div>
-        {stats.perfect && <div className="perfect">Perfect run<span>Every country first try. No mistakes, no hints.</span></div>}
+        {stats.perfect && <div className="perfect">Perfect run · {stats.score.toLocaleString()}<span>Every country first try, the maximum score. No mistakes, no hints.</span></div>}
+        {game.before && game.bests?.run && <div className="record"><Burst />New personal best<span>Your best {areaShort(game.area)} Challenge run yet.</span></div>}
         <div className="headline">
           <div><span>Score</span><strong>{stats.score.toLocaleString()}</strong><small>/ {stats.maxScore.toLocaleString()}</small>{game.bests?.score && <em>New best</em>}</div>
           <div><span>First-try accuracy</span><strong>{pct(stats.accuracy)}</strong>{game.bests?.accuracy && <em>New best</em>}</div>
@@ -467,6 +466,7 @@ export default function App() {
           <div><dt>Longest perfect streak</dt><dd>{stats.longestStreak}{game.bests?.streak && <em> · new best</em>}</dd></div>
           <div><dt>Time</dt><dd>{formatTime(stats.elapsedMs)}{game.bests?.time && <em> · new best</em>}</dd></div>
         </dl>
+        <ScoreBreakdown stats={stats} />
         <ReviewList answers={round.answers} countries={countries} nameOf={nameOf} />
         <button className="btn primary" onClick={playAgain}>Play again</button>
         <button className="btn" onClick={() => { setRunView('latest'); setView('progress'); }}>See this run in Progress</button>
@@ -486,7 +486,7 @@ export default function App() {
         store={perf} area={area} set={countrySet} mode={mode} kind={progressKind}
         onArea={chooseArea} onSet={setCountrySet} onMode={setMode} onKind={k => { setProgressKind(k); setSelected(null); }}
         record={progressRecord} runView={runView} onRunView={setRunView} legend={legend}
-        selected={selectedCountry} result={selectedCountry && runResults.get(selectedCountry.id)} onCloseCountry={() => setSelected(null)}
+        selected={selectedCountry} result={selectedCountry && runResults.get(selectedCountry.id)} resultBonus={selectedCountry ? runBonuses.get(selectedCountry.id) ?? 0 : 0} onCloseCountry={() => setSelected(null)}
         nameOf={nameOf} loading={loading} poolSize={playIds.length} onPlay={k => startRound({ kind: k })} />}
     </aside>}
 

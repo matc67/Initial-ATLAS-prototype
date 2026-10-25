@@ -1,5 +1,5 @@
 // Small pieces shared by the app's panels.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { flagUrl } from '../data/flags';
 
 // A country's flag. Until the image has loaded, and for good if it fails, the box shows the country's code instead of an
@@ -25,6 +25,30 @@ const ICONS = {
   pause: 'M9 6v12M15 6v12',
   'play-small': 'M8 5.5v13l10-6.5-10-6.5Z',
   bolt: 'M13 2 4.5 13.5H11L10 22l8.5-11.5H12L13 2Z',
+  sound: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4v-5ZM16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11',
+  mute: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4v-5ZM16.5 9.5l5 5M21.5 9.5l-5 5',
 };
 export const Icon = ({ name }: { name: keyof typeof ICONS }) =>
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={ICONS[name]} /></svg>;
+
+export const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// A number that eases to each new value over `ms` (ease-out), starting from `from`; with reduced motion it jumps at once.
+export function useTween(target: number, ms = 500, from = target) {
+  const [value, setValue] = useState(() => (reducedMotion() ? target : from));
+  const shown = useRef(value);
+  useEffect(() => {
+    const set = (v: number) => { shown.current = v; setValue(v); };
+    if (reducedMotion() || shown.current === target) { set(target); return; }
+    const start = performance.now(), a = shown.current;
+    let frame = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / ms);
+      set(Math.round(a + (target - a) * (1 - (1 - t) ** 3)));
+      if (t < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [target, ms]);
+  return value;
+}

@@ -3,8 +3,7 @@
 // country set, mode, kind and challenge version) only.
 import { AREAS, type Area, type CountrySet } from '../data/countries.ts';
 import { countryChallenge, sprintChallenge, type ChallengeKind, type GameMode } from './challenges.ts';
-import { perfKey, totalsOf, type Performance, type PerformanceStore, type RunSummary } from './records.ts';
-import { MAX_POINTS } from './scoring.ts';
+import { countriesIn, perfKey, totalsOf, type Performance, type PerformanceStore, type RunSummary } from './records.ts';
 
 export type ChallengeRef = { area: Area; set: CountrySet; mode: GameMode; kind: ChallengeKind; id: string; key: string };
 
@@ -16,6 +15,9 @@ export const CATALOG: ChallengeRef[] = AREAS.flatMap(area => (['200', '195'] as 
   }))));
 const BY_ID = new Map(CATALOG.map(c => [c.id, c]));
 export const refOf = (p: Performance) => BY_ID.get(p.challengeId);
+// Whether a record was made under the current rules (country list and scoring). Older records stay readable and count
+// towards all-time totals, but their scores are not compared with current ones.
+export const isCurrent = (p: Performance) => refOf(p)?.key === perfKey({ id: p.challengeId, version: p.version });
 
 export type Overview = {
   games: number; sprints: number; perfect: number;
@@ -28,16 +30,17 @@ export type Overview = {
 export function overview(store: PerformanceStore): Overview {
   const all = Object.values(store);
   const sprints = all.filter(p => refOf(p)?.kind === 'sprint');
+  const currentSprints = sprints.filter(isCurrent);
   const totals = all.map(totalsOf);
   const answered = totals.reduce((n, t) => n + t.answered, 0);
   return {
     games: all.reduce((n, p) => n + p.runs, 0),
     sprints: sprints.reduce((n, p) => n + p.runs, 0),
     perfect: all.reduce((n, p) => n + p.perfectRuns, 0),
-    bestSprintScore: sprints.length ? Math.max(...sprints.map(p => p.bestScore)) : null,
+    bestSprintScore: currentSprints.length ? Math.max(...currentSprints.map(p => p.bestScore)) : null,
     bestStreak: all.length ? Math.max(...all.map(p => p.longestStreak)) : null,
     // Every completed run answers every country in it, and all runs of one record have the same size.
-    countriesAnswered: all.reduce((n, p) => n + p.runs * Math.round(p.best.maxScore / MAX_POINTS), 0),
+    countriesAnswered: all.reduce((n, p) => n + p.runs * countriesIn(p.best), 0),
     accuracy: answered ? (totals.reduce((n, t) => n + t.firstTry, 0) / answered) * 100 : null,
     accuracyRuns: totals.reduce((n, t) => n + t.runs, 0),
   };
@@ -50,10 +53,11 @@ export function recordsFor(store: PerformanceStore, f: RecordFilter): { ref: Cha
 }
 
 // Recent Sprints across every area and mode, newest first, each with the best of its own challenge to compare with.
-export type RecentRun = { ref: ChallengeRef; run: RunSummary; best: RunSummary; isBest: boolean };
+// `earlier` marks a run from a record made under earlier rules (before streak bonuses), so it is not read as a current score.
+export type RecentRun = { ref: ChallengeRef; run: RunSummary; best: RunSummary; isBest: boolean; earlier: boolean };
 export function recentSprints(store: PerformanceStore, limit = 12): RecentRun[] {
   return Object.values(store)
-    .flatMap(p => { const ref = refOf(p); return ref?.kind === 'sprint' ? p.history.map(run => ({ ref, run, best: p.best, isBest: run.runId === p.best.runId })) : []; })
+    .flatMap(p => { const ref = refOf(p); return ref?.kind === 'sprint' ? p.history.map(run => ({ ref, run, best: p.best, isBest: run.runId === p.best.runId, earlier: !isCurrent(p) })) : []; })
     .sort((a, b) => b.run.at.localeCompare(a.run.at))
     .slice(0, limit);
 }

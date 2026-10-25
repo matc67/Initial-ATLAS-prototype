@@ -9,7 +9,7 @@ const hit = (id: string): Attempt => ({ id, points: 100, mistakes: 0, wrongIds: 
 const miss = (id: string): Attempt => ({ id, points: 50, mistakes: 1, wrongIds: ['X'], hint: false });
 let n = 0;
 const run = (c: GeographyChallenge, results: Attempt[], ms: number, day: number): GameRun =>
-  ({ id: `r${++n}`, challengeId: c.id, version: c.version, completedAt: `2026-10-${String(day).padStart(2, '0')}T12:00:00Z`, activeTimeMs: ms, results });
+  ({ id: `r${++n}`, challengeId: c.id, version: c.version, scoring: 2, completedAt: `2026-10-${String(day).padStart(2, '0')}T12:00:00Z`, activeTimeMs: ms, results });
 const ten = (misses = 0) => Array.from({ length: 10 }, (_, i) => (i < misses ? miss(`C${i}`) : hit(`C${i}`)));
 function play(store: PerformanceStore, c: GeographyChallenge, r: GameRun) {
   return { ...store, [perfKey(c)]: addRun(store[perfKey(c)], r).performance };
@@ -18,9 +18,9 @@ function play(store: PerformanceStore, c: GeographyChallenge, r: GameRun) {
 const africaSprint = sprintChallenge('Africa', '200', 'find'), europeSprint = sprintChallenge('Europe', '195', 'name');
 const oceaniaFull = countryChallenge('Oceania', '200', 'find');
 let store: PerformanceStore = {};
-store = play(store, africaSprint, run(africaSprint, ten(2), 40_000, 20));   // 900, 80%
-store = play(store, africaSprint, run(africaSprint, ten(0), 35_000, 21));   // 1,000, perfect
-store = play(store, europeSprint, run(europeSprint, ten(1), 50_000, 22));   // 950
+store = play(store, africaSprint, run(africaSprint, ten(2), 40_000, 20));   // 900 + 150 streak bonus, 80%
+store = play(store, africaSprint, run(africaSprint, ten(0), 35_000, 21));   // 1,000 + 400, perfect
+store = play(store, europeSprint, run(europeSprint, ten(1), 50_000, 22));   // 950 + 150
 store = play(store, oceaniaFull, run(oceaniaFull, Array.from({ length: 14 }, (_, i) => (i < 4 ? miss(`O${i}`) : hit(`O${i}`))), 90_000, 23));
 
 test('the catalog covers every area, set, mode and kind once, with distinct keys', () => {
@@ -30,7 +30,7 @@ test('the catalog covers every area, set, mode and kind once, with distinct keys
 
 test('all-time overview adds up the real runs only', () => {
   const o = overview(store);
-  assert.deepEqual([o.games, o.sprints, o.perfect, o.bestSprintScore, o.bestStreak, o.countriesAnswered], [4, 3, 1, 1000, 10, 44]);
+  assert.deepEqual([o.games, o.sprints, o.perfect, o.bestSprintScore, o.bestStreak, o.countriesAnswered], [4, 3, 1, 1400, 10, 44]);
   // 44 answered, 7 missed first try: (44 − 7) / 44.
   assert.ok(Math.abs(o.accuracy! - (37 / 44) * 100) < 1e-9);
   assert.equal(o.accuracyRuns, 4);
@@ -41,7 +41,7 @@ test('all-time overview adds up the real runs only', () => {
 test('records are filtered by kind, mode and set, one per area, never mixing Sprint and Full', () => {
   const sprintFind200 = recordsFor(store, { kind: 'sprint', mode: 'find', set: '200' });
   assert.equal(sprintFind200.length, 8);
-  assert.deepEqual(sprintFind200.filter(r => r.performance).map(r => [r.ref.area, r.performance!.bestScore, r.performance!.runs]), [['Africa', 1000, 2]]);
+  assert.deepEqual(sprintFind200.filter(r => r.performance).map(r => [r.ref.area, r.performance!.bestScore, r.performance!.runs]), [['Africa', 1400, 2]]);
   assert.deepEqual(recordsFor(store, { kind: 'full', mode: 'find', set: '200' }).filter(r => r.performance).map(r => r.ref.area), ['Oceania']);
   assert.deepEqual(recordsFor(store, { kind: 'sprint', mode: 'name', set: '195' }).filter(r => r.performance).map(r => r.ref.area), ['Europe']);
   assert.equal(recordsFor(store, { kind: 'full', mode: 'name', set: '200' }).filter(r => r.performance).length, 0);
@@ -49,8 +49,9 @@ test('records are filtered by kind, mode and set, one per area, never mixing Spr
 
 test('recent Sprints are newest first, across areas, with the personal best marked', () => {
   const recent = recentSprints(store);
-  assert.deepEqual(recent.map(r => [r.ref.area, r.run.score, r.isBest]), [['Europe', 950, true], ['Africa', 1000, true], ['Africa', 900, false]]);
-  assert.equal(recent[2].best.score, 1000);
+  assert.deepEqual(recent.map(r => [r.ref.area, r.run.score, r.isBest]), [['Europe', 1100, true], ['Africa', 1400, true], ['Africa', 1050, false]]);
+  assert.equal(recent[2].best.score, 1400);
+  assert.ok(recent.every(r => !r.earlier));
   assert.ok(!recent.some(r => r.ref.kind !== 'sprint'), 'a Full Challenge run is listed as a Sprint');
   assert.deepEqual(recentSprints({}), []);
 });

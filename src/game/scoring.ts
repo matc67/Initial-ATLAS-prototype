@@ -1,5 +1,7 @@
 // The rules of a round, as pure functions with no browser or React dependencies, so they can be tested with `npm test`.
 // Accuracy comes first, then consistency (streaks), then speed. Time never changes points.
+// Total score = base points (per country, by attempt) + streak bonuses (at streak milestones). Both are derived from the
+// answers in order, by the same functions during play and for saved runs, so the HUD, results and records always agree.
 
 // One finished question. `wrongIds` are the countries (or, in Name it, the typed answers) guessed wrongly before it ended.
 export type Attempt = { id: string; points: number; mistakes: number; wrongIds: string[]; hint: boolean };
@@ -25,10 +27,42 @@ export const LATE_POINTS = 10;
 export const MAX_POINTS = ATTEMPT_POINTS[0];
 // A second click on the same country this soon after the first is the same physical interaction (bounce, double-click).
 export const REPEAT_MS = 300;
-export const STREAK_MILESTONES = [5, 10, 20, 50, 100];
 
 export const pointsFor = (mistakes: number, hint: boolean) => (hint ? 0 : ATTEMPT_POINTS[mistakes] ?? LATE_POINTS);
 export const isFirstTry = (a: Attempt) => !a.hint && a.mistakes === 0;
+
+// ---- Streak bonuses -------------------------------------------------------------------------------------------------------
+// Scoring version 1 had base points only; version 2 (ATLAS v0.3) adds streak bonuses. Records are kept per version, so
+// scores made under different rules are never ranked against each other.
+export const SCORING_VERSION = 2;
+// A bonus is earned once each time a continuous streak of first-try answers reaches one of these lengths. A broken streak
+// starts again from 0, so a new streak can earn them again.
+export type Milestone = { streak: number; bonus: number };
+export const STREAK_MILESTONES: Milestone[] = [
+  { streak: 3, bonus: 50 }, { streak: 5, bonus: 100 }, { streak: 10, bonus: 250 },
+  { streak: 20, bonus: 500 }, { streak: 50, bonus: 1500 }, { streak: 100, bonus: 4000 },
+];
+export const milestoneAt = (streak: number) => STREAK_MILESTONES.find(m => m.streak === streak);
+export const bonusAt = (streak: number) => milestoneAt(streak)?.bonus ?? 0;
+
+// The streak after each answer, in order: +1 for a first-try answer, back to 0 otherwise.
+export function streaksOf(answers: Attempt[]): number[] {
+  let run = 0;
+  return answers.map(a => (run = isFirstTry(a) ? run + 1 : 0));
+}
+// The bonus each answer earned (0 for most), in order. Scoring version 1 runs earned none.
+export const bonusesOf = (answers: Attempt[], scoring = SCORING_VERSION) =>
+  scoring < 2 ? answers.map(() => 0) : streaksOf(answers).map(bonusAt);
+
+export type Score = { base: number; bonus: number; total: number };
+export function scoreOf(answers: Attempt[], scoring = SCORING_VERSION): Score {
+  const base = answers.reduce((n, a) => n + a.points, 0), bonus = bonusesOf(answers, scoring).reduce((n, b) => n + b, 0);
+  return { base, bonus, total: base + bonus };
+}
+// The most a run of `n` questions can score: every one first try, so every milestone up to n is reached once.
+export const maxBonusFor = (n: number, scoring = SCORING_VERSION) =>
+  scoring < 2 ? 0 : STREAK_MILESTONES.filter(m => m.streak <= n).reduce((t, m) => t + m.bonus, 0);
+export const maxScoreFor = (n: number, scoring = SCORING_VERSION) => n * MAX_POINTS + maxBonusFor(n, scoring);
 
 // ---- Clock -------------------------------------------------------------------------------------------------------------
 export const elapsed = (c: Clock, now: number) => c.accumulated + (c.since === null ? 0 : now - c.since);
@@ -92,7 +126,8 @@ export const resume = (r: Round, now: number): Round => (r.phase === 'done' ? r 
 
 // ---- Statistics (derived, never stored separately) ---------------------------------------------------------------------
 export type Stats = {
-  score: number; maxScore: number; completed: number; total: number;
+  score: number;           // base + bonus
+  base: number; bonus: number; maxScore: number; completed: number; total: number;
   firstTryCorrect: number; countriesMissed: number; totalMistakes: number; hintsUsed: number;
   accuracy: number | null; // first-try accuracy in %, or null before any country is completed
   longestStreak: number; elapsedMs: number; perfect: boolean;
@@ -103,9 +138,10 @@ export function statsOf(r: Round, now: number): Stats {
   const firstTryCorrect = r.answers.filter(isFirstTry).length;
   const totalMistakes = r.answers.reduce((n, a) => n + a.mistakes, 0) + r.wrong.length;
   const hintsUsed = r.answers.filter(a => a.hint).length;
+  const { base, bonus, total } = scoreOf(r.answers);
   return {
-    score: r.answers.reduce((n, a) => n + a.points, 0),
-    maxScore: r.queue.length * MAX_POINTS,
+    score: total, base, bonus,
+    maxScore: maxScoreFor(r.queue.length),
     completed, total: r.queue.length,
     firstTryCorrect, countriesMissed: completed - firstTryCorrect, totalMistakes, hintsUsed,
     accuracy: completed ? (firstTryCorrect / completed) * 100 : null,

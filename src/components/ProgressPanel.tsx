@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import type { Area, Country, CountrySet } from '../data/countries';
-import { SPRINT_SIZE, type ChallengeKind, type GameMode } from '../game/challenges';
-import type { Performance } from '../game/records';
-import { formatTime, isFirstTry, type Attempt } from '../game/scoring';
+import { SPRINT_SIZE, countryChallenge, sprintChallenge, type ChallengeKind, type GameMode } from '../game/challenges';
+import { perfKey, type Performance } from '../game/records';
+import { formatTime, isFirstTry, maxScoreFor, type Attempt } from '../game/scoring';
 import { overview, recentSprints, recordsFor } from '../game/stats';
 import { COLORS } from '../map/GlobeView';
 import type { PerformanceStore } from '../game/records';
@@ -23,7 +23,7 @@ export type ProgressProps = {
   record?: Performance;
   runView: 'latest' | 'best'; onRunView: (v: 'latest' | 'best') => void;
   legend: { first: number; retry: number; hinted: number; none: number };
-  selected?: Country; result?: Attempt; onCloseCountry: () => void;
+  selected?: Country; result?: Attempt; resultBonus: number; onCloseCountry: () => void;
   nameOf: (id: string) => string;
   loading: boolean; poolSize: number;
   onPlay: (kind: ChallengeKind) => void;
@@ -47,7 +47,7 @@ export default function ProgressPanel(p: ProgressProps) {
         <Stat label="Games" value={o.games.toLocaleString()} />
         <Stat label="Sprints" value={o.sprints.toLocaleString()} />
         <Stat label="Perfect runs" value={o.perfect.toLocaleString()} gold={o.perfect > 0} />
-        <Stat label="Best Sprint" value={o.bestSprintScore === null ? '–' : o.bestSprintScore.toLocaleString()} gold={o.bestSprintScore === 1000} />
+        <Stat label="Best Sprint" value={o.bestSprintScore === null ? '–' : o.bestSprintScore.toLocaleString()} gold={o.bestSprintScore === maxScoreFor(SPRINT_SIZE)} />
         <Stat label="Best streak" value={o.bestStreak === null ? '–' : String(o.bestStreak)} />
         <Stat label="Countries answered" value={o.countriesAnswered.toLocaleString()} />
       </div>
@@ -83,21 +83,29 @@ export default function ProgressPanel(p: ProgressProps) {
       <p className="muted">Ten countries. One clock. One score to beat.</p>
       <button className="btn primary" onClick={() => p.onPlay('sprint')} disabled={p.loading || p.poolSize < SPRINT_SIZE}><Icon name="bolt" /> Play a {areaName(p.area)} Sprint</button>
     </div> : <ul className="recent-list">
-      {recent.map(({ ref, run, best, isBest }) => <li key={run.runId} className={isBest ? 'best-run' : ''}>
-        <span className="recent-what"><b>{areaName(ref.area)}</b><small>{modeName(ref.mode)}{ref.set === '195' ? ' · Classic' : ''} · {day(run.at)}</small></span>
+      {recent.map(({ ref, run, best, isBest, earlier }) => <li key={run.runId} className={isBest ? 'best-run' : ''}>
+        <span className="recent-what"><b>{areaName(ref.area)}</b><small>{modeName(ref.mode)}{ref.set === '195' ? ' · Classic' : ''} · {day(run.at)}{earlier ? ' · before bonuses' : ''}</small></span>
         <span className="recent-score"><b>{run.score.toLocaleString()}</b>{isBest ? <em>Best</em> : <small>best {best.score.toLocaleString()}</small>}</span>
         <span className="recent-meta">{pct(run.accuracy)}<small>{formatTime(run.ms)}</small></span>
       </li>)}
     </ul>}
-    <p className="fine">Records compare runs of the same challenge only. Each Sprint draws a new ten, so Sprint records are personal arcade bests. Saved in this browser.</p>
+    <p className="fine">Records compare runs of the same challenge only. Each Sprint draws a new ten, so Sprint records are personal arcade bests. Runs from before streak bonuses keep their scores but are not ranked against new ones. Saved in this browser.</p>
   </div>;
 }
 
+// The same challenge's record from before streak bonuses (scoring version 1), if there is one: kept and shown, never ranked.
+function earlierRecord(p: ProgressProps) {
+  const c = p.kind === 'sprint' ? sprintChallenge(p.area, p.set, p.mode) : countryChallenge(p.area, p.set, p.mode);
+  return p.store[perfKey({ id: c.id, version: c.earlierVersion })];
+}
+const EarlierNote = ({ r }: { r?: Performance }) => r ? <p className="fine earlier">Before streak bonuses: best {r.bestScore.toLocaleString()} / {r.best.maxScore.toLocaleString()} · {pct(r.bestAccuracy)} · {formatTime(r.fastestMs)} · {r.runs} {r.runs === 1 ? 'run' : 'runs'}. Kept for reference, not ranked against new scores.</p> : null;
+
 // The selected record in full, and the run it paints on the globe.
 function RecordDetail(p: ProgressProps) {
-  const r = p.record, what = `${areaName(p.area)} ${p.kind === 'sprint' ? 'Sprint' : 'Full Challenge'}`;
+  const r = p.record, what = `${areaName(p.area)} ${p.kind === 'sprint' ? 'Sprint' : 'Full Challenge'}`, earlier = earlierRecord(p);
   if (!r) return <div className="record-detail empty">
     <p className="muted">No completed {what} runs in {modeName(p.mode)}{p.set === '195' ? ' (Classic 195)' : ''} yet.</p>
+    <EarlierNote r={earlier} />
     <button className="btn" onClick={() => p.onPlay(p.kind)} disabled={p.loading || (p.kind === 'sprint' ? p.poolSize < SPRINT_SIZE : !p.poolSize)}>
       {p.kind === 'sprint' ? <><Icon name="bolt" /> Play a {areaName(p.area)} Sprint</> : `Play ${areaName(p.area)} · ${p.poolSize} countries`}</button>
   </div>;
@@ -110,6 +118,7 @@ function RecordDetail(p: ProgressProps) {
       <div><span>Longest streak</span><strong>{r.longestStreak}</strong></div>
     </div>
     <p className="fine">{what} · {modeName(p.mode)} · {r.runs} {r.runs === 1 ? 'run' : 'runs'}{r.perfectRuns ? ` · ${r.perfectRuns} perfect` : ''} · fewest mistakes {r.fewestMistakes}</p>
+    <EarlierNote r={earlier} />
     {r.latestRun ? <>
       <div className="segmented two" role="radiogroup" aria-label="Run shown on the globe">
         <button role="radio" aria-checked={p.runView === 'latest'} className={p.runView === 'latest' ? 'on' : ''} onClick={() => p.onRunView('latest')}>Latest run</button>
@@ -122,7 +131,7 @@ function RecordDetail(p: ProgressProps) {
         <Level color={COLORS.progress.hinted} label="Used Show me" n={p.legend.hinted} />
         <Level color={COLORS.progress.none} label={p.kind === 'sprint' ? 'Not in this Sprint' : 'Not attempted'} n={p.legend.none} />
       </ul>
-      {p.selected ? <RunCountry country={p.selected} result={p.result} nameOf={p.nameOf} onClose={p.onCloseCountry} />
+      {p.selected ? <RunCountry country={p.selected} result={p.result} bonus={p.resultBonus} nameOf={p.nameOf} onClose={p.onCloseCountry} />
         : <p className="fine">Click a country to see how it went in this run. One run is a snapshot, not proof you know a country for good.</p>}
     </> : <p className="fine">Country-by-country results are saved from your next run of this challenge.</p>}
   </div>;
@@ -141,14 +150,14 @@ const Level = ({ color, label, n }: { color: string; label: string; n: number })
   <li><i style={{ background: color }} /><span>{label}</span><b>{n}</b></li>;
 
 // How one country went in the run shown on the globe.
-function RunCountry({ country, result: a, nameOf, onClose }: { country: Country; result?: Attempt; nameOf: (id: string) => string; onClose: () => void }) {
+function RunCountry({ country, result: a, bonus, nameOf, onClose }: { country: Country; result?: Attempt; bonus: number; nameOf: (id: string) => string; onClose: () => void }) {
   return <div className="run-country">
     <div className="card-head"><strong className="with-flag"><Flag iso2={country.iso2} />{country.name}</strong><button className="close" aria-label="Close" onClick={onClose}>×</button></div>
     {!a ? <p className="fine">Not part of this run.</p> : <dl className="mini">
       <div><dt>{a.hint ? 'Guesses before Show me' : 'Attempts'}</dt><dd>{a.hint ? a.mistakes : a.mistakes + 1}</dd></div>
       <div><dt>Incorrect guesses</dt><dd>{a.mistakes}</dd></div>
       <div><dt>First-try correct</dt><dd>{isFirstTry(a) ? 'Yes' : 'No'}</dd></div>
-      <div><dt>Points earned</dt><dd>{a.points}</dd></div>
+      <div><dt>Points earned</dt><dd>{a.points}{bonus > 0 && <> + {bonus} streak bonus</>}</dd></div>
       {a.wrongIds.length > 0 && <div className="wide"><dt>Clicked instead</dt><dd>{wrongList(a.wrongIds).map(([id, n]) => `${nameOf(id)}${n > 1 ? ` ×${n}` : ''}`).join(', ')}</dd></div>}
     </dl>}
   </div>;

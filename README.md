@@ -16,7 +16,9 @@ To make a production bundle run `npm run build`.
 - MapLibre GL JS globe, solid-fill countries, selected-country highlighting
 - Find the Country and Name the Country modes
 - Worldwide and continent filters
-- Score: 100, 60, 30, 10, then 0 points depending on prior wrong guesses
+- Score: 100, 50, 25 for the 1st, 2nd and 3rd attempt, then 10; Show me gives 0
+- Streak bonuses for first-try answers in a row: +50 at 3, +100 at 5, +250 at 10, +500 at 20, +1,500 at 50, +4,000 at 100 (a perfect 10-Country Sprint scores 1,400). Records are kept per scoring version, so runs from before bonuses are kept but not ranked against new ones
+- Optional arcade sounds, off by default (speaker button in the HUD)
 - Progress in `localStorage` without login; two separate first-attempt successes count as mastered
 - Optional mastery overlay; country selection when not playing
 
