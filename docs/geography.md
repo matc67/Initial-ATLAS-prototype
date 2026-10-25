@@ -1,5 +1,7 @@
 # Geography data and the road to provinces and cities
 
+> **Subdivisions:** the dataset choice and plan for first-level divisions are now in [subdivisions.md](subdivisions.md), which supersedes the subdivision parts of this page. In particular, geoBoundaries ADM1 is not uniformly CC BY 4.0 (licences vary per country), and ATLAS uses Natural Earth Admin-1 instead.
+
 How ATLAS stores places today, what is reusable, and how first-level divisions (states, provinces, prefectures…) and cities plug into the game without slowing the World game down.
 
 ## What exists today

@@ -10,6 +10,7 @@
     "data": "node scripts/build-countries.ts",
     "relief": "node scripts/build-relief.ts",
     "places": "node scripts/build-places.ts",
+    "admin1": "node scripts/build-admin1.ts",
     "test": "node --test 'src/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json"
   },

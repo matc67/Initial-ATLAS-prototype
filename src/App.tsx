@@ -33,6 +33,8 @@ import {
   saveMysteryStore, saveRecent, toMysteryRun, type MysteryBests, type MysteryChallenge, type MysteryRecord, type MysteryRun,
 } from './game/mysteryRecords';
 import { ROSTER } from './data/roster';
+import SubdivisionInspector from './components/SubdivisionInspector';
+import { describeCount, loadSubdivisionIndex, loadSubdivisions, type SubdivisionIndex, type SubdivisionSet } from './data/subdivisions';
 import { PACIFIC_VIEWS, type RegionView } from './map/regions';
 import { COLORS, GlobeView, type Camera, type Land, type StatusMap, type Theme } from './map/GlobeView';
 
@@ -155,10 +157,26 @@ export default function App() {
   // Every country of the set with a shape: the possible answers, all of them guessable.
   const mysteryPool = (set: CountrySet) => [...countries.values()].filter(c => inSet(c, set) && !!distRef.current?.has(c.id)).map(c => c.id);
 
+  // ---- Subdivisions (Phase 2: development builds only) ---------------------------------------------------------------
+  // A country's first-level subdivisions on the globe, opened from Explore's country panel or with #subdivisions=CAN.
+  // Production builds never load the subdivision index (import.meta.env.DEV is false there), so nothing changes for
+  // players until the real Explore integration (docs/subdivisions.md, Phase 4).
+  const [subIndex, setSubIndex] = useState<SubdivisionIndex | null>(null);
+  const [subView, setSubView] = useState<{ set: SubdivisionSet; selected: string | null } | null>(null);
+  const [subHover, setSubHover] = useState<string | null>(null);
+  const subOpen = view === 'explore' && !!subView;
+  useEffect(() => { if (import.meta.env.DEV) loadSubdivisionIndex().then(setSubIndex, () => {}); }, []);
+
   // Map events arrive outside React, so they always call the latest handlers through this ref.
-  const handlers = useRef({ pick: (_id: string | null, _at: LngLat, _land?: Land, _ambiguous?: string[]) => {}, hover: (_id: string | null) => {} });
+  const handlers = useRef({
+    pick: (_id: string | null, _at: LngLat, _land?: Land, _ambiguous?: string[]) => {}, hover: (_id: string | null) => {},
+    subPick: (_id: string | null, _at: LngLat, _ambiguous?: string[]) => {}, subHover: (_id: string | null) => {},
+  });
   useEffect(() => {
-    const globe = new GlobeView(mapDiv.current!, { onPick: (id, at, land, ambiguous) => handlers.current.pick(id, at, land, ambiguous), onHover: id => handlers.current.hover(id) }, { glow: glowDiv.current!, shade: shadeDiv.current! });
+    const globe = new GlobeView(mapDiv.current!, {
+      onPick: (id, at, land, ambiguous) => handlers.current.pick(id, at, land, ambiguous), onHover: id => handlers.current.hover(id),
+      onSubPick: (id, at, ambiguous) => handlers.current.subPick(id, at, ambiguous), onSubHover: id => handlers.current.subHover(id),
+    }, { glow: glowDiv.current!, shade: shadeDiv.current! });
     globeRef.current = globe;
     // Development builds expose the map so visual checks can move the camera; production builds strip this.
     if (import.meta.env.DEV) (window as unknown as { atlasMap: unknown }).atlasMap = globe.map;
@@ -172,13 +190,17 @@ export default function App() {
   // Centre the globe in the open space: beside the side panel, or under the question card during a round.
   useEffect(() => {
     const pad = (animate: boolean) => globeRef.current?.setPadding(isMobile()
-      ? { left: 0, right: 0, top: inRound ? 236 : mysteryPlaying ? 200 : 110, bottom: inRound ? 130 : mysteryPlaying ? 150 : window.innerHeight * 0.42 }
+      ? { left: 0, right: 0, top: inRound ? 236 : mysteryPlaying ? 200 : 110, bottom: inRound ? 130 : mysteryPlaying ? 150 : subOpen ? window.innerHeight * 0.34 + 100 : window.innerHeight * 0.42 }
       : inRound ? { left: 100, right: 100, top: 236, bottom: 100 } : mysteryPlaying ? { left: 100, right: 360, top: 200, bottom: 110 } : { left: 110, right: 370, top: 90, bottom: 60 }, animate);
     pad(true);
     const onResize = () => pad(false);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [inRound, mysteryPlaying]);
+  }, [inRound, mysteryPlaying, subOpen]);
+  // Frames a subdivision view once its padding is in place (this runs after the padding effect above).
+  useEffect(() => {
+    if (subView) globeRef.current?.frame(subView.set.meta.frame.center, subView.set.meta.frame.radiusKm, 1200);
+  }, [subView?.set]);
 
   // The clock runs only while the round is on screen and playable: not while paused, with Help open, in another view,
   // or with the tab hidden. Elapsed time is computed from performance.now(), so it never drifts.
@@ -288,6 +310,29 @@ export default function App() {
   }
 
   handlers.current.hover = setHoverId;
+  handlers.current.subHover = setSubHover;
+  handlers.current.subPick = (id, at, ambiguous) => {
+    // Several units in reach of a click on water: zoom in so the player can choose, as for tiny countries.
+    if (ambiguous) { globeRef.current?.fly({ center: at, zoom: Math.min(8, globeRef.current.map.getZoom() + 2) }, 700); return; }
+    setSubView(v => (v ? { ...v, selected: id } : v));
+  };
+
+  // Opens a country's subdivision view in Explore: the same globe, framed on the country, the rest dimmed.
+  function openSubdivisions(countryId: string) {
+    loadSubdivisions(countryId).then(set => {
+      setView('explore');
+      setSelected(countryId);
+      setSelectedLand(null);
+      setSubView({ set, selected: null });
+    }, e => setError(e instanceof Error ? e.message : 'Subdivisions could not load.'));
+  }
+  // Back to Explore with the country still selected.
+  function exitSubdivisions() {
+    const c = subView && countries.get(subView.set.countryId);
+    setSubView(null);
+    setSubHover(null);
+    if (c) flyToCountry(c);
+  }
   handlers.current.pick = (id, at, land, ambiguous) => {
     const g = gameRef.current;
     // Rings too close together to tell apart. In a round, those that cannot be the answer (outside the round or already
@@ -306,6 +351,12 @@ export default function App() {
       }
     }
     if (view !== 'play') {
+      // In a subdivision view, the ocean clears the selected unit; another country leaves the view and opens that one.
+      if (subView) {
+        if (!id && !land) { setSubView({ ...subView, selected: null }); return; }
+        setSubView(null);
+        setSubHover(null);
+      }
       setSelected(id);
       setSelectedLand(id ? null : land ?? null);
       if (id) globeRef.current?.flash(id, FLASH_SELECT, 600);
@@ -523,12 +574,21 @@ export default function App() {
   useEffect(() => {
     // In a Classic 195 round, the 5 extra ATLAS countries fade back with everything outside the area.
     // Progress shows the records of the chosen country set, so it fades the rest the same way.
-    // A mystery covers the whole world: only countries outside its set fade.
-    const out = (c: Country) => view === 'play' && mystery ? !inSet(c, mystery.set)
+    // A mystery covers the whole world: only countries outside its set fade. A subdivision view fades every other country.
+    const out = (c: Country) => view === 'explore' && subView ? c.id !== subView.set.countryId : view === 'play' && mystery ? !inSet(c, mystery.set)
       : !inArea(c, area) || (view === 'play' && !!game && !inSet(c, game.set)) || (view === 'progress' && !inSet(c, countrySet));
     if (countries.size) globeRef.current?.setDimmed(new Set([...countries.values()].filter(out).map(c => c.id)));
-  }, [area, countries, view, game, countrySet, mystery?.set, !!mystery]);
+  }, [area, countries, view, game, countrySet, mystery?.set, !!mystery, subView?.set]);
   useEffect(() => { if (countries.size) globeRef.current?.setFocus(view === 'progress' ? selected : null); }, [view, selected, countries]);
+  // The subdivision layer shows only the country on view, only in Explore.
+  useEffect(() => { if (view !== 'explore' && subView) setSubView(null); }, [view]);
+  useEffect(() => { if (countries.size) globeRef.current?.showSubdivisions(subView ? subView.set : null); }, [subView?.set, countries]);
+  useEffect(() => { globeRef.current?.setSubSelected(subView?.selected ?? null); }, [subView?.selected, subView?.set]);
+  // Development entry: #subdivisions=CAN opens that country's view once the map has loaded.
+  useEffect(() => {
+    const m = import.meta.env.DEV && countries.size ? /^#subdivisions=([A-Z]{3})$/.exec(location.hash) : null;
+    if (m) openSubdivisions(m[1]);
+  }, [countries]);
 
   // Explore: the opened country's capital and major cities, loaded on first use and drawn as markers.
   useEffect(() => {
@@ -537,9 +597,9 @@ export default function App() {
   }, [view, selected, places]);
   const selectedPlaces = selected ? places?.countries[selected] : undefined;
   useEffect(() => {
-    const cities = view === 'explore' ? selectedPlaces?.cities ?? [] : [];
+    const cities = view === 'explore' && !subView ? selectedPlaces?.cities ?? [] : [];
     globeRef.current?.setCities(cities.slice(0, 6).map(c => ({ id: c.id, name: c.name, at: lngLat(c), capital: !!c.capital })));
-  }, [view, selectedPlaces]);
+  }, [view, selectedPlaces, !!subView]);
 
   // Names and flags on hover everywhere except during a round (the Play start screen and results included). In a round
   // only countries already guessed correctly are named: any other label would give an answer away (Show me answers stay
@@ -649,7 +709,7 @@ export default function App() {
       <button type="submit" aria-label="Submit answer" data-silent><Icon name="arrow" /></button>
     </form>}
 
-    {!inRound && !inMystery && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : 'card panel'}>
+    {!inRound && !inMystery && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : view === 'explore' && subView ? 'card panel sub' : 'card panel'}>
       {view === 'play' && !game && <>
         <div className="eyebrow">{SET_LABEL[countrySet]}</div>
         <h1>{areaTitle(area)}</h1>
@@ -696,10 +756,13 @@ export default function App() {
         <button className="btn" onClick={() => commit(null)}>Change challenge</button>
       </>}
 
-      {view === 'explore' && (selectedCountry ? <CountryPanel
+      {view === 'explore' && subView && selectedCountry ? <SubdivisionInspector country={selectedCountry} set={subView.set} selected={subView.selected}
+        onSelect={id => setSubView({ ...subView, selected: id })} onExit={exitSubdivisions} />
+      : view === 'explore' && (selectedCountry ? <CountryPanel
         country={selectedCountry} places={selectedPlaces} placesError={placesError} loaded={!!places}
         challengeSize={countryChallenge(selectedCountry.continent, countrySet, 'find').targetIds.length}
-        onPlay={() => startRound({ area: selectedCountry.continent, mode: 'find' })} onClose={() => setSelected(null)} /> : selectedLand ? <>
+        onPlay={() => startRound({ area: selectedCountry.continent, mode: 'find' })} onClose={() => setSelected(null)}
+        subdivisions={import.meta.env.DEV && subIndex?.countries[selectedCountry.id] ? { label: describeCount(subIndex.countries[selectedCountry.id]), open: () => openSubdivisions(selectedCountry.id) } : undefined} /> : selectedLand ? <>
         <div className="card-head"><h1>{selectedLand.name}</h1><button className="close" aria-label="Close" onClick={() => setSelectedLand(null)}>×</button></div>
         <dl className="facts"><div><dt>Status</dt><dd>{landNote(selectedLand).status}</dd></div></dl>
         <p className="muted">{landNote(selectedLand).why}</p>
@@ -714,7 +777,8 @@ export default function App() {
         mysteryRecord={mysteryRecord} mysterySize={mEntries.length} countryOf={id => countries.get(id)} onMystery={() => startMystery()} />}
     </aside>}
 
-    {hoverCountry && <div className="hover-name"><Flag iso2={hoverCountry.iso2} />{hoverCountry.name}</div>}
+    {subView && subHover ? <div className="hover-name">{subView.set.byId.get(subHover)?.properties.name}<small>{subView.set.byId.get(subHover)?.properties.kind}</small></div>
+      : hoverCountry && <div className="hover-name"><Flag iso2={hoverCountry.iso2} />{hoverCountry.name}</div>}
     <div className="zoom" data-silent><button aria-label="Zoom in" onClick={() => globeRef.current?.zoomBy(1)}>+</button><button aria-label="Zoom out" onClick={() => globeRef.current?.zoomBy(-1)}>−</button></div>
     {error && <div className="error">{error}</div>}
     <footer className="credits">Borders and relief: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> · Flags: flag-icons</footer>
@@ -722,8 +786,9 @@ export default function App() {
 }
 
 // Explore: a country's facts, its capital and major cities (Natural Earth), and the challenges it leads to.
-function CountryPanel({ country, places, placesError, loaded, challengeSize, onPlay, onClose }: {
+function CountryPanel({ country, places, placesError, loaded, challengeSize, onPlay, onClose, subdivisions }: {
   country: Country; places?: { cities: City[]; note?: string }; placesError: boolean; loaded: boolean; challengeSize: number; onPlay: () => void; onClose: () => void;
+  subdivisions?: { label: string; open: () => void };   // development builds only, for countries with subdivision data
 }) {
   const capitals = capitalsOf(places);
   const major = places?.cities.filter(c => !c.capital).slice(0, 5) ?? [];
@@ -744,6 +809,7 @@ function CountryPanel({ country, places, placesError, loaded, challengeSize, onP
     {major.length > 0 && <div className="cities"><span className="eyebrow">Major cities</span><p>{major.map(c => c.name).join(', ')}</p></div>}
     <div className="eyebrow">Challenges</div>
     <button className="btn" onClick={onPlay}>Play {country.continent} · {challengeSize} countries</button>
+    {subdivisions && <button className="btn dev" onClick={subdivisions.open}>Dev · Inspect {subdivisions.label}</button>}
     <p className="fine">Coming later: {country.name}’s regions and cities as challenges of their own. Capitals and cities: Natural Earth.</p>
   </>;
 }

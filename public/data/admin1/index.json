@@ -1,0 +1,53 @@
+{
+  "version": "f8cd4131b8a3",
+  "builtAt": "2026-10-25T02:33:29.365Z",
+  "source": {
+    "name": "Natural Earth Admin 1 States and Provinces 1:10m",
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
+    "commit": "ca96624a56bd078437bca8184e78163e5039ad19",
+    "licence": "Public domain"
+  },
+  "countryData": {
+    "file": "countries.topo.json",
+    "sha256": "8bd94558993f9c4cf93afc703387eb1b23fa163eeefca0d94567132c97817fc9"
+  },
+  "countries": {
+    "CAN": {
+      "enabled": true,
+      "file": "admin1/CAN.topo.json",
+      "count": 13,
+      "kinds": {
+        "Province": 10,
+        "Territory": 3
+      },
+      "terms": {
+        "singular": "province or territory",
+        "plural": "provinces and territories",
+        "kinds": [
+          {
+            "singular": "province",
+            "plural": "provinces"
+          },
+          {
+            "singular": "territory",
+            "plural": "territories"
+          }
+        ]
+      },
+      "bounds": [
+        -141.006,
+        41.669,
+        -52.616,
+        83.117
+      ],
+      "frame": {
+        "center": [
+          -96.811,
+          62.393
+        ],
+        "radiusKm": 3229
+      },
+      "flags": []
+    }
+  }
+}

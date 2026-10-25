@@ -106,6 +106,11 @@ const BORDER = 'rgba(172, 196, 228, 0.5)';
 // Coastline width for the land-edge layers: the land's own colour, drawn along its outline (see load()).
 // Islands below this area get the land-edge trace: about 3 × 3 pixels at the zoom of a World round.
 const ISLET_KM2 = 3000;
+// Subdivision layers, all empty until a subdivision view opens (see showSubdivisions).
+const SUB_SOURCES = ['sub-units', 'sub-islets'] as const;
+const SUB_PICK = ['sub-fill', 'sub-edge'];
+const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+const selectedSub = ['boolean', ['feature-state', 'selected'], false] as ExpressionSpecification;
 const LAND_EDGE = ['interpolate', ['linear'], ['zoom'], 1, 1.1, 4, 0.9, 7, 0.6] as ExpressionSpecification;
 // Region fades: each country carries an `act` feature-state from 0 (neutral land) to 1 (full colour) that is animated per
 // country. Layers and their filters never change, so a region switch never makes MapLibre rebuild its tiles.
@@ -123,7 +128,15 @@ export type GlobeEvents = {
   // the countries when the click sat between rings too close to tell apart (then `id` is null).
   onPick: (id: string | null, at: LngLat, land?: Land, ambiguous?: string[]) => void;
   onHover: (id: string | null) => void;
+  // Subdivisions (see showSubdivisions): a click or hover on a unit of the country on view. Clicks elsewhere still go to
+  // onPick, so the rest of the globe works as usual.
+  // `ambiguous` lists the units in reach when a click on water was near more than one (then `id` is null).
+  onSubPick?: (id: string | null, at: LngLat, ambiguous?: string[]) => void;
+  onSubHover?: (id: string | null) => void;
 };
+// What showSubdivisions draws: one country's units (polygons with `id` and `color` properties) and its internal borders.
+// Coasts and international borders stay the country layer's, so they never change.
+export type SubdivisionLayerData = { units: GeoJSON.FeatureCollection; borders: GeoJSON.FeatureCollection };
 
 export class GlobeView {
   readonly map: MapLibreMap;
@@ -266,19 +279,112 @@ export class GlobeView {
     map.addLayer({ id: 'flash-line', type: 'line', source: 'outlines', filter: none, layout: { 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': 0, 'line-blur': 0.6, 'line-opacity': 0 } });
     map.addLayer({ id: 'flash-ring', type: 'circle', source: 'markers', filter: none, paint: { 'circle-radius': 8, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-stroke-opacity': 0 } });
 
-    map.on('click', e => { const { id, land, ambiguous } = this.pickAt(e.point); this.events.onPick(id, [e.lngLat.lng, e.lngLat.lat], land, ambiguous); });
+    this.addSubdivisionLayers();
+    map.on('click', e => {
+      const at: LngLat = [e.lngLat.lng, e.lngLat.lat], sub = this.subPick(e.point);
+      if (sub && this.events.onSubPick) { this.events.onSubPick(sub.id, at, sub.ambiguous); return; }
+      const { id, land, ambiguous } = this.pickAt(e.point);
+      this.events.onPick(id, at, land, ambiguous);
+    });
     map.on('mousemove', e => {
+      const sub = this.subAt(e.point);
+      this.setSubHover(sub);
+      if (sub) { map.getCanvas().style.cursor = 'pointer'; this.setHover(null); return; }
       const { id } = this.pickAt(e.point);
       map.getCanvas().style.cursor = id ? 'pointer' : '';
       this.setHover(id);
     });
-    map.on('mouseout', () => this.setHover(null));
+    map.on('mouseout', () => { this.setHover(null); this.setSubHover(null); });
     this.playable = countries.features.filter(f => f.properties?.playable === 1).map(f => String(f.properties!.id));
     this.rings = markers.features.map(f => ({ id: String(f.properties?.id), at: (f.geometry as GeoJSON.Point).coordinates as LngLat }));
     this.small = new Set([...this.rings.map(r => r.id), ...halos.features.map(f => String(f.properties?.id))]);
     this.loaded = true;
     if (this.pendingDim) this.setDimmed(this.pendingDim);
     return { countries, tiny: new Set(markers.features.map(f => String(f.properties?.id))) };
+  }
+
+  // ---- Subdivisions -------------------------------------------------------------------------------------------------
+  // One country's first-level subdivisions, drawn over its country fill: fills in the country palette (neighbours never
+  // share a colour), coastline traces for small islands, internal borders, and an outline for the hovered or selected
+  // unit. Generic: the data says everything. Sources stay empty (and cost nothing) until a view opens; one country at a
+  // time, replaced with setData, so the style never grows.
+  private subIds: string[] = [];
+  private subHoverId: string | null = null;
+  private subSelectedId: string | null = null;
+  private addSubdivisionLayers() {
+    const map = this.map;
+    for (const id of SUB_SOURCES) map.addSource(id, { type: 'geojson', data: EMPTY, promoteId: 'id' });
+    map.addSource('sub-borders', { type: 'geojson', data: EMPTY });
+    const brighter = (t: number) => palette(COLORS.country.map(c => mix(c, '#ffffff', t)));
+    const fill = ['case', selectedSub, brighter(0.3), hovered, brighter(0.14), vivid] as unknown as ExpressionSpecification;
+    // Fills under the relief (so the globe keeps its shading) and above the country fills they replace.
+    map.addLayer({ id: 'sub-fill', type: 'fill', source: 'sub-units', paint: { 'fill-color': fill, 'fill-opacity': 0.97 } }, 'relief');
+    map.addLayer({ id: 'sub-edge', type: 'line', source: 'sub-islets', layout: { 'line-join': 'round' }, paint: { 'line-color': fill, 'line-width': LAND_EDGE, 'line-opacity': 0.97 } }, 'relief');
+    // Internal borders, a little lighter than country borders; coasts and international borders stay the country layer's.
+    map.addLayer({ id: 'sub-border', type: 'line', source: 'sub-borders', layout: { 'line-join': 'round' }, paint: {
+      'line-color': 'rgba(240, 246, 255, 0.62)', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.5, 5, 1.2],
+    } }, 'country-line');
+    map.addLayer({ id: 'sub-outline', type: 'line', source: 'sub-units', layout: { 'line-join': 'round' }, paint: {
+      'line-color': '#fff6dc', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.2, 5, 2.4],
+      'line-opacity': ['case', selectedSub, 1, hovered, 0.55, 0],
+    } }, 'missed-line');
+  }
+
+  // Shows one country's subdivisions, or none. Clears hover and selection.
+  showSubdivisions(data: SubdivisionLayerData | null) {
+    if (!this.loaded) return;
+    this.setSubHover(null);
+    this.setSubSelected(null);
+    (this.map.getSource('sub-units') as maplibregl.GeoJSONSource).setData(data?.units ?? EMPTY);
+    (this.map.getSource('sub-islets') as maplibregl.GeoJSONSource).setData(data ? isletsOf(data.units, ISLET_KM2) : EMPTY);
+    (this.map.getSource('sub-borders') as maplibregl.GeoJSONSource).setData(data?.borders ?? EMPTY);
+    this.subIds = data ? data.units.features.map(f => String(f.properties?.id)) : [];
+  }
+
+  // The unit under the pointer, when a subdivision view is open. Every point of the country belongs to exactly one unit
+  // (scripts/build-admin1.ts), so near a border this is simply the unit whose land is under the pointer.
+  private subAt(point: maplibregl.Point): string | null {
+    if (!this.subIds.length) return null;
+    const hit = this.map.queryRenderedFeatures(point, { layers: SUB_PICK })[0];
+    return hit ? String(hit.properties.id) : null;
+  }
+  // A click: the unit under the pointer, exactly. Over water, units within the click reach (the same reach as country
+  // rings, wider for touch) are considered, so a unit a few pixels wide at this zoom (Prince Edward Island with all of
+  // Canada on a phone) can still be tapped: one in reach is that unit; several are reported, never guessed.
+  private subPick(point: maplibregl.Point): { id: string | null; ambiguous?: string[] } | null {
+    const direct = this.subAt(point);
+    if (direct || !this.subIds.length) return direct ? { id: direct } : null;
+    const r = this.reach, box: [maplibregl.PointLike, maplibregl.PointLike] = [[point.x - r, point.y - r], [point.x + r, point.y + r]];
+    const near = [...new Set(this.map.queryRenderedFeatures(box, { layers: SUB_PICK }).map(f => String(f.properties.id)))];
+    // Over another country's land, a nearby unit never takes the click.
+    if (!near.length || this.pickAt(point).id) return null;
+    return near.length === 1 ? { id: near[0] } : { id: null, ambiguous: near.sort() };
+  }
+  private setSubState(id: string, state: { [key: string]: unknown }) {
+    for (const source of SUB_SOURCES) this.map.setFeatureState({ source, id }, state);
+  }
+  private setSubHover(id: string | null) {
+    if (id === this.subHoverId) return;
+    if (this.subHoverId) this.setSubState(this.subHoverId, { hover: false });
+    if (id) this.setSubState(id, { hover: true });
+    this.subHoverId = id;
+    this.events.onSubHover?.(id);
+  }
+  setSubSelected(id: string | null) {
+    if (id === this.subSelectedId || !this.loaded) return;
+    if (this.subSelectedId && this.subIds.includes(this.subSelectedId)) this.setSubState(this.subSelectedId, { selected: false });
+    if (id) this.setSubState(id, { selected: true });
+    this.subSelectedId = id;
+  }
+
+  // Frames a region given by its centre and the distance to its farthest point. On the globe the scale at the centre is
+  // 2π·R·cos(lat) / (512·2^zoom) km per pixel, so the zoom that fits 2·radius into the open space (inside the padding)
+  // follows directly. Works the same across 180°.
+  frame(center: LngLat, radiusKm: number, duration = 1100) {
+    const c = this.map.getContainer(), p = this.padding;
+    const px = Math.max(120, Math.min(c.clientWidth - p.left - p.right, c.clientHeight - p.top - p.bottom));
+    const zoom = Math.log2((2 * Math.PI * 6371 * Math.cos((center[1] * Math.PI) / 180) * px) / (512 * 2 * radiusKm));
+    this.fly({ center, zoom: Math.max(this.map.getMinZoom(), Math.min(this.map.getMaxZoom(), zoom)) }, duration);
   }
 
   // Gathers what is under and near the pointer and lets resolvePick decide (see pick.ts for the rules).
