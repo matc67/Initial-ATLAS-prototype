@@ -7,6 +7,9 @@ import { overview, recentSprints, recordsFor } from '../game/stats';
 import { COLORS } from '../map/GlobeView';
 import type { PerformanceStore } from '../game/records';
 import { averageGuesses, type MysteryRecord } from '../game/mysteryRecords';
+import { describeCount, type SubdivisionIndex } from '../data/subdivisions';
+import { hasRegions } from '../game/exploreNav';
+import { completedCount, regionRecords, statusOf } from '../game/regionRecords';
 import { Flag, Icon } from './ui';
 
 const pct = (n: number | null) => (n === null ? '–' : `${Math.round(n)}%`);
@@ -30,12 +33,14 @@ export type ProgressProps = {
   onPlay: (kind: ChallengeKind) => void;
   // Mystery Country, for the chosen country set: its own stats, never mixed with the scored modes.
   mysteryRecord?: MysteryRecord; mysterySize: number; countryOf: (id: string) => Country | undefined; onMystery: () => void;
+  // Regions (first-level subdivisions): their own records store, per country, mode and challenge type.
+  regions: { index: SubdivisionIndex | null; failed: boolean; store: PerformanceStore; onOpen: (countryId: string) => void };
 };
 
 // Progress: how good the player is at ATLAS and whether they are improving. All-time stats first, then records by area
 // for one kind of challenge, and the latest Sprints. Everything comes from completed runs saved in this browser.
 export default function ProgressPanel(p: ProgressProps) {
-  const [tab, setTab] = useState<'records' | 'recent' | 'mystery'>('records');
+  const [tab, setTab] = useState<'records' | 'recent' | 'mystery' | 'regions'>('records');
   const o = overview(p.store);
   const recent = recentSprints(p.store);
   const records = recordsFor(p.store, { kind: p.kind, mode: p.mode, set: p.set });
@@ -58,13 +63,14 @@ export default function ProgressPanel(p: ProgressProps) {
         <span>{o.accuracyRuns === o.games ? (o.games === 1 ? 'from your first run' : `across all ${o.games} runs`) : `across the ${o.accuracyRuns} of ${o.games} runs with answers on record`}</span></p>
     </>}
 
-    <div className="segmented tabs-inline" role="tablist" aria-label="Progress sections">
+    <div className="segmented four tabs-inline" role="tablist" aria-label="Progress sections">
       <button role="tab" aria-selected={tab === 'records'} className={tab === 'records' ? 'on' : ''} onClick={() => setTab('records')}>Records</button>
       <button role="tab" aria-selected={tab === 'recent'} className={tab === 'recent' ? 'on' : ''} onClick={() => setTab('recent')}>Sprints</button>
       <button role="tab" aria-selected={tab === 'mystery'} className={tab === 'mystery' ? 'on' : ''} onClick={() => setTab('mystery')}>Mystery</button>
+      <button role="tab" aria-selected={tab === 'regions'} className={tab === 'regions' ? 'on' : ''} onClick={() => setTab('regions')}>Regions</button>
     </div>
 
-    {tab === 'mystery' ? <MysteryProgress {...p} /> : tab === 'records' ? <>
+    {tab === 'regions' ? <RegionsProgress {...p} /> : tab === 'mystery' ? <MysteryProgress {...p} /> : tab === 'records' ? <>
       <div className="filters">
         <Toggle label="Challenge" value={p.kind} options={[['sprint', 'Sprint'], ['full', 'Full']]} onChange={p.onKind} />
         <Toggle label="Mode" value={p.mode} options={[['find', 'Find'], ['name', 'Name']]} onChange={p.onMode} />
@@ -93,7 +99,7 @@ export default function ProgressPanel(p: ProgressProps) {
         <span className="recent-meta">{pct(run.accuracy)}<small>{formatTime(run.ms)}</small></span>
       </li>)}
     </ul>}
-    {tab !== 'mystery' && <p className="fine">Records compare runs of the same challenge only. Each Sprint draws a new ten, so Sprint records are personal arcade bests. Runs from before streak bonuses keep their scores but are not ranked against new ones. Saved in this browser.</p>}
+    {(tab === 'records' || tab === 'recent') && <p className="fine">Records compare runs of the same challenge only. Each Sprint draws a new ten, so Sprint records are personal arcade bests. Runs from before streak bonuses keep their scores but are not ranked against new ones. Saved in this browser.</p>}
   </div>;
 }
 
@@ -138,6 +144,37 @@ function RecordDetail(p: ProgressProps) {
       {p.selected ? <RunCountry country={p.selected} result={p.result} bonus={p.resultBonus} nameOf={p.nameOf} onClose={p.onCloseCountry} />
         : <p className="fine">Click a country to see how it went in this run. One run is a snapshot, not proof you know a country for good.</p>}
     </> : <p className="fine">Country-by-country results are saved from your next run of this challenge.</p>}
+  </div>;
+}
+
+// Region challenges, per country with region data: for each mode and length, the best score, best time, first-try
+// accuracy and how often it was completed. Records of other scoring versions or unit lists are kept but not shown.
+function RegionsProgress(p: ProgressProps) {
+  const { index, failed, store, onOpen } = p.regions;
+  if (!index) return <p className="fine">{failed ? 'Regions could not load. Check your connection and try again.' : 'Loading regions…'}</p>;
+  const ids = Object.keys(index.countries).filter(id => hasRegions(index, id, import.meta.env.DEV));
+  return <div className="regions-progress">
+    {ids.map(id => {
+      const meta = index.countries[id], c = p.countryOf(id), rows = regionRecords(store, id, meta);
+      return <section key={id} className="region-country">
+        <div className="region-country-head">
+          <strong className="with-flag"><Flag iso2={c?.iso2} />{c?.name ?? id}</strong>
+          <small>{describeCount(meta)} · {completedCount(rows)} of {rows.length} challenges completed</small>
+        </div>
+        <ul className="region-records">
+          {rows.map(r => <li key={r.key} className={r.performance ? '' : 'none'}>
+            <span className="what">{r.mode === 'find' ? 'Find the Region' : 'Name the Region'}<small>{r.kind === 'sprint' ? `${r.size}-question Sprint` : `All ${r.size}`}</small></span>
+            {r.performance ? <span className="nums">
+              <b>{r.performance.bestScore.toLocaleString()}</b><small>/ {r.maxScore.toLocaleString()}</small>
+              <span>{Math.round(r.performance.bestAccuracy)}% · {formatTime(r.performance.fastestMs)}</span>
+            </span> : <span className="nums" />}
+            <span className="status">{statusOf(r)}</span>
+          </li>)}
+        </ul>
+        <button className="btn small" onClick={() => onOpen(id)}>Open {c?.name ?? id} in Explore</button>
+      </section>;
+    })}
+    <p className="fine">Region records are kept apart from country records, per country, game and length. More countries are on the way.</p>
   </div>;
 }
 

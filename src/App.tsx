@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import Starfield from './components/Starfield';
 import ChallengePicker from './components/ChallengePicker';
 import Hud, { type HudFx } from './components/Hud';
@@ -34,8 +34,9 @@ import {
   saveMysteryStore, saveRecent, toMysteryRun, type MysteryBests, type MysteryChallenge, type MysteryRecord, type MysteryRun,
 } from './game/mysteryRecords';
 import { ROSTER } from './data/roster';
-import SubdivisionInspector from './components/SubdivisionInspector';
-import { describeCount, loadSubdivisionIndex, loadSubdivisions, subdivisionPlayables, type SubdivisionIndex, type SubdivisionSet } from './data/subdivisions';
+import { CountryRegions, RegionsPanel, RegionsShortcut } from './components/Regions';
+import { afterRound, backToCountry, clickCountry, clickNothing, hasRegions, openRegions, selectRegion, toWorld, type ExploreNav } from './game/exploreNav';
+import { loadSubdivisionIndex, loadSubdivisions, subdivisionPlayables, type SubdivisionIndex, type SubdivisionSet } from './data/subdivisions';
 import { PACIFIC_VIEWS, type RegionView } from './map/regions';
 import { COLORS, GlobeView, type Camera, type Land, type StatusMap, type Theme } from './map/GlobeView';
 
@@ -164,17 +165,21 @@ export default function App() {
   // Every country of the set with a shape: the possible answers, all of them guessable.
   const mysteryPool = (set: CountrySet) => [...countries.values()].filter(c => inSet(c, set) && !!distRef.current?.has(c.id)).map(c => c.id);
 
-  // ---- Subdivisions (Phase 2: development builds only) ---------------------------------------------------------------
-  // A country's first-level subdivisions on the globe, opened from Explore's country panel or with #subdivisions=CAN.
-  // Production builds never load the subdivision index (import.meta.env.DEV is false there), so nothing changes for
-  // players until the real Explore integration (docs/subdivisions.md, Phase 4).
+  // ---- Regions (first-level subdivisions) -------------------------------------------------------------------------------
+  // A country's regions in Explore: its panel says what it has and starts Find or Name the Region; its regions view shows
+  // them on the globe. The small index loads the first time a country is opened in Explore or Progress opens, never at
+  // startup; a country's file loads when its regions are shown or played (docs/subdivisions.md).
   const [subIndex, setSubIndex] = useState<SubdivisionIndex | null>(null);
+  const [subIndexFailed, setSubIndexFailed] = useState(false);
   const [subView, setSubView] = useState<{ set: SubdivisionSet; selected: string | null } | null>(null);
   const [subHover, setSubHover] = useState<string | null>(null);
   const subOpen = view === 'explore' && !!subView;
   // The subdivisions on the map: a subdivision round's, or the Explore view's. Never both, never another country's.
   const shownSubs = view === 'play' && game?.sub ? game.sub : view === 'explore' && subView ? subView.set : null;
-  useEffect(() => { if (import.meta.env.DEV) loadSubdivisionIndex().then(setSubIndex, () => {}); }, []);
+  const needIndex = (view === 'explore' && !!selected) || view === 'progress';
+  useEffect(() => {
+    if (needIndex && !subIndex) loadSubdivisionIndex().then(idx => { setSubIndex(idx); setSubIndexFailed(false); }, () => setSubIndexFailed(true));
+  }, [needIndex]);
 
   // Map events arrive outside React, so they always call the latest handlers through this ref.
   const handlers = useRef({
@@ -314,9 +319,10 @@ export default function App() {
     const g = gameRef.current;
     commit(null);
     if (!g?.sub) return;
+    const to = afterRound(g.sub.countryId);
     setView('explore');
-    setSelected(g.sub.countryId);
-    setSubView({ set: g.sub, selected: null });
+    setSelected(to.country);
+    setSubView({ set: g.sub, selected: to.regions!.unit });
   }
 
   // Fetches the flags of the next few questions ahead of time, so each one is already there when its question appears.
@@ -369,24 +375,36 @@ export default function App() {
       return;
     }
     if (inSubRound && id) { clickGuess(g!, id, at); return; }
-    if (view === 'explore') setSubView(v => (v ? { ...v, selected: id } : v));
+    if (view === 'explore') applyNav(selectRegion(nav, id));
   };
 
-  // Opens a country's subdivision view in Explore: the same globe, framed on the country, the rest dimmed.
-  function openSubdivisions(countryId: string) {
-    loadSubdivisions(countryId).then(set => {
-      setView('explore');
-      setSelected(countryId);
-      setSelectedLand(null);
-      setSubView({ set, selected: null });
-    }, e => setError(e instanceof Error ? e.message : 'Subdivisions could not load.'));
+  // Explore navigation (game/exploreNav.ts): the pure moves decide where the player goes; this applies them. Opening a
+  // regions view loads that country's file (cached) and frames it; the rest of the globe fades.
+  const nav: ExploreNav = { country: selected, regions: subView ? { country: subView.set.countryId, unit: subView.selected } : null };
+  function applyNav(next: ExploreNav) {
+    if (next === nav) return;
+    setSelected(next.country);
+    if (!next.regions) { if (subView) { setSubView(null); setSubHover(null); } return; }
+    const r = next.regions;
+    if (subView?.set.countryId === r.country) { setSubView({ ...subView, selected: r.unit }); return; }
+    loadSubdivisions(r.country).then(set => setSubView({ set, selected: r.unit }), e => setError(e instanceof Error ? e.message : 'Regions could not load.'));
   }
-  // Back to Explore with the country still selected.
+  function openSubdivisions(countryId: string) {
+    setView('explore');
+    setSelectedLand(null);
+    applyNav(openRegions(nav, countryId));
+  }
+  // Back to the country's panel, still selected, or out to the whole world.
   function exitSubdivisions() {
     const c = subView && countries.get(subView.set.countryId);
-    setSubView(null);
-    setSubHover(null);
+    applyNav(backToCountry(nav));
     if (c) flyToCountry(c);
+  }
+  function worldView() {
+    applyNav(toWorld(nav));
+    setSelectedLand(null);
+    setArea('World');
+    globeRef.current?.fly(fit(AREA_CAMERA.World));
   }
   handlers.current.pick = (id, at, land, ambiguous) => {
     const g = gameRef.current;
@@ -406,11 +424,12 @@ export default function App() {
       }
     }
     if (view !== 'play') {
-      // In a subdivision view, the ocean clears the selected unit; another country leaves the view and opens that one.
-      if (subView) {
-        if (!id && !land) { setSubView({ ...subView, selected: null }); return; }
-        setSubView(null);
-        setSubHover(null);
+      // In a regions view, the ocean or other land clears the selected region; another country leaves the view and opens
+      // that one (game/exploreNav.ts).
+      if (view === 'explore' && subView) {
+        const next = id ? clickCountry(nav, id) : clickNothing(nav);
+        applyNav(next);
+        if (!id || next.regions) return;
       }
       setSelected(id);
       setSelectedLand(id ? null : land ?? null);
@@ -838,14 +857,18 @@ export default function App() {
         <button className="btn" onClick={leaveRound}>{game.sub ? `Back to ${scopeName(game)}` : 'Change challenge'}</button>
       </>}
 
-      {view === 'explore' && subView && selectedCountry ? <SubdivisionInspector country={selectedCountry} set={subView.set} selected={subView.selected}
-        onSelect={id => setSubView({ ...subView, selected: id })} onExit={exitSubdivisions}
+      {view === 'explore' && subView && selectedCountry ? <RegionsPanel country={selectedCountry} set={subView.set} selected={subView.selected}
+        onSelect={(id, toggle) => applyNav(selectRegion(nav, id, toggle))} onBack={exitSubdivisions} onWorld={worldView}
         onPlay={(m, kind) => startSubdivisionRound(subView.set.countryId, m, kind)} records={subPerf} />
       : view === 'explore' && (selectedCountry ? <CountryPanel
         country={selectedCountry} places={selectedPlaces} placesError={placesError} loaded={!!places}
         challengeSize={countryChallenge(selectedCountry.continent, countrySet, 'find').targetIds.length}
         onPlay={() => startRound({ area: selectedCountry.continent, mode: 'find' })} onClose={() => setSelected(null)}
-        subdivisions={import.meta.env.DEV && subIndex?.countries[selectedCountry.id] ? { label: describeCount(subIndex.countries[selectedCountry.id]), open: () => openSubdivisions(selectedCountry.id) } : undefined} /> : selectedLand ? <>
+        regions={<CountryRegions country={selectedCountry} records={subPerf}
+          state={!subIndex ? (subIndexFailed ? 'unavailable' : 'loading') : hasRegions(subIndex, selectedCountry.id, import.meta.env.DEV) ? 'ready' : 'unavailable'}
+          meta={subIndex?.countries[selectedCountry.id] ?? null}
+          onShow={() => openSubdivisions(selectedCountry.id)} onPlay={(m, kind) => startSubdivisionRound(selectedCountry.id, m, kind)} />}
+        shortcut={subIndex && hasRegions(subIndex, selectedCountry.id, import.meta.env.DEV) ? <RegionsShortcut meta={subIndex.countries[selectedCountry.id]} onShow={() => openSubdivisions(selectedCountry.id)} /> : null} /> : selectedLand ? <>
         <div className="card-head"><h1>{selectedLand.name}</h1><button className="close" aria-label="Close" onClick={() => setSelectedLand(null)}>×</button></div>
         <dl className="facts"><div><dt>Status</dt><dd>{landNote(selectedLand).status}</dd></div></dl>
         <p className="muted">{landNote(selectedLand).why}</p>
@@ -857,7 +880,8 @@ export default function App() {
         record={progressRecord} runView={runView} onRunView={setRunView} legend={legend}
         selected={selectedCountry} result={selectedCountry && runResults.get(selectedCountry.id)} resultBonus={selectedCountry ? runBonuses.get(selectedCountry.id) ?? 0 : 0} onCloseCountry={() => setSelected(null)}
         nameOf={nameOf} loading={loading} poolSize={playIds.length} onPlay={k => startRound({ kind: k })}
-        mysteryRecord={mysteryRecord} mysterySize={mEntries.length} countryOf={id => countries.get(id)} onMystery={() => startMystery()} />}
+        mysteryRecord={mysteryRecord} mysterySize={mEntries.length} countryOf={id => countries.get(id)} onMystery={() => startMystery()}
+        regions={{ index: subIndex, failed: subIndexFailed, store: subPerf, onOpen: openSubdivisions }} />}
     </aside>}
 
     {/* In a round, only subdivisions already found are named, as for countries. */}
@@ -870,15 +894,17 @@ export default function App() {
 }
 
 // Explore: a country's facts, its capital and major cities (Natural Earth), and the challenges it leads to.
-function CountryPanel({ country, places, placesError, loaded, challengeSize, onPlay, onClose, subdivisions }: {
+function CountryPanel({ country, places, placesError, loaded, challengeSize, onPlay, onClose, regions, shortcut }: {
   country: Country; places?: { cities: City[]; note?: string }; placesError: boolean; loaded: boolean; challengeSize: number; onPlay: () => void; onClose: () => void;
-  subdivisions?: { label: string; open: () => void };   // development builds only, for countries with subdivision data
+  regions: ReactNode;   // its regions block (components/Regions.tsx): the games, or "not available yet"
+  shortcut: ReactNode;  // a one-line way into its regions, under the name (null without region data)
 }) {
   const capitals = capitalsOf(places);
   const major = places?.cities.filter(c => !c.capital).slice(0, 5) ?? [];
   const pending = !loaded && !placesError;
   return <>
     <div className="card-head"><h1 className="with-flag"><Flag iso2={country.iso2} size="lg" />{country.name}</h1><button className="close" aria-label="Close" onClick={onClose}>×</button></div>
+    {shortcut}
     <dl className="facts">
       <div><dt>{capitals.length > 1 ? 'Capitals' : 'Capital'}</dt><dd>{pending ? '…' : placesError ? 'Not available' : capitals.length
         ? capitals.map(c => <span key={c.id} className="cap">{c.name}{typeof c.capital === 'string' && <small> {c.capital}</small>}</span>)
@@ -893,8 +919,8 @@ function CountryPanel({ country, places, placesError, loaded, challengeSize, onP
     {major.length > 0 && <div className="cities"><span className="eyebrow">Major cities</span><p>{major.map(c => c.name).join(', ')}</p></div>}
     <div className="eyebrow">Challenges</div>
     <button className="btn" onClick={onPlay}>Play {country.continent} · {challengeSize} countries</button>
-    {subdivisions && <button className="btn dev" onClick={subdivisions.open}>Dev · Inspect {subdivisions.label}</button>}
-    <p className="fine">Coming later: {country.name}’s regions and cities as challenges of their own. Capitals and cities: Natural Earth.</p>
+    {regions}
+    <p className="fine">Coming later: {country.name}’s cities as challenges of their own. Borders, capitals and cities: Natural Earth.</p>
   </>;
 }
 

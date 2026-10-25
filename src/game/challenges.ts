@@ -79,12 +79,19 @@ export function sprintChallenge(area: Area, set: CountrySet, mode: GameMode, poo
 // country with fewer has only the full challenge, which is already short, never a padded or repeating Sprint.
 export const subdivisionKinds = (count: number): ChallengeKind[] => (count >= SPRINT_SIZE ? ['sprint', 'full'] : ['full']);
 
+// e.g. "can-admin1-find", "can-admin1-sprint-name": apart from every country challenge id.
+export const subdivisionChallengeId = (countryId: string, mode: GameMode, kind: ChallengeKind) => `${slug(countryId)}-admin1${kind === 'sprint' ? '-sprint' : ''}-${mode}`;
+// A challenge's records key from the fingerprint of the country's unit list (`versionOf(ids)`, stored in the subdivision
+// index as `unitsVersion`), so Progress finds a country's records without loading its geometry. Same as perfKey of the
+// challenge itself.
+export const subdivisionKey = (countryId: string, mode: GameMode, kind: ChallengeKind, unitsVersion: string) =>
+  `${subdivisionChallengeId(countryId, mode, kind)}@${scoredVersion(kind === 'sprint' ? `s${SPRINT_SIZE}-${unitsVersion}` : unitsVersion)}`;
+
 export function subdivisionChallenge(countryId: string, name: string, mode: GameMode, kind: ChallengeKind, ids: string[]): GeographyChallenge {
   if (kind === 'sprint' && ids.length < SPRINT_SIZE) throw new Error(`${countryId} has ${ids.length} subdivisions, too few for a ${SPRINT_SIZE}-question Sprint`);
   const list = versionOf(ids);
   return {
-    // e.g. "can-admin1-find", "can-admin1-sprint-name": apart from every country challenge id.
-    id: `${slug(countryId)}-admin1${kind === 'sprint' ? '-sprint' : ''}-${mode}`,
+    id: subdivisionChallengeId(countryId, mode, kind),
     name: kind === 'sprint' ? `${name} Sprint` : name,
     kind, size: kind === 'sprint' ? SPRINT_SIZE : ids.length,
     entityType: 'admin1', scopeId: `country:${countryId}`,

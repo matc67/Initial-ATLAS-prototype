@@ -11,6 +11,7 @@ export type SubdivisionMeta = {
   enabled: boolean;
   file: string;
   count: number;
+  unitsVersion: string;                       // versionOf(unit ids): challenge record keys use it (subdivisionKey)
   kinds: { [kind: string]: number };
   terms: AdminTerms;
   bounds: [number, number, number, number];   // west, south, east, north; east > 180 across 180°

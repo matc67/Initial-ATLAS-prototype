@@ -449,23 +449,54 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
   .mystery-hud { left: calc(50% - 170px); width: min(480px, calc(100vw - 480px)); }
 }
 
-/* Subdivisions, development preview (Phase 2). */
-.sub-inspector { display: grid; gap: var(--gap); }
-.sub-inspector code { font-size: 11.5px; color: var(--ink-2); }
-.sub-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; max-height: 34vh; overflow-y: auto; }
+/* Regions (first-level subdivisions) in Explore and Progress. */
+.sub-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
 .sub-list button { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 7px 10px; border-radius: 9px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.03); color: var(--ink); text-align: left; font-size: 13px; }
 .sub-list button:hover { background: rgba(255, 255, 255, 0.07); }
 .sub-list button.on { border-color: rgba(255, 246, 220, 0.6); background: rgba(255, 246, 220, 0.08); }
 .sub-list small { font-size: 11px; color: var(--ink-3); white-space: nowrap; }
-.btn.dev { border-style: dashed; color: var(--ink-2); }
-.sub-modes { display: grid; gap: 8px; }
-.sub-mode { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--panel-line); background: rgba(255, 255, 255, 0.03); }
-.sub-mode strong { display: flex; align-items: center; gap: 7px; font-family: 'Space Grotesk', sans-serif; font-size: 14px; }
-.sub-mode strong svg { width: 15px; height: 15px; color: var(--ink-2); }
-.sub-mode-actions { display: flex; gap: 6px; }
-.sub-mode-actions .btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
-.sub-mode-actions .btn svg { width: 13px; height: 13px; }
-.sub-mode small { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.regions-chip { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px; border-radius: 11px; border: 1px solid rgba(110, 170, 255, 0.45); background: rgba(59, 130, 246, 0.12); color: var(--ink); font-size: 13px; text-align: left; }
+.regions-chip:hover { background: rgba(59, 130, 246, 0.2); }
+.regions-chip > svg { width: 15px; height: 15px; color: #93c5fd; flex: none; }
+.regions-chip span { flex: 1; min-width: 0; }
+.regions-chip b { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; color: #bfdbfe; white-space: nowrap; }
+.regions-chip b svg { width: 13px; height: 13px; }
+.country-regions { display: grid; gap: 8px; padding-top: 4px; border-top: 1px solid var(--panel-line); }
+.regions-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-top: 8px; }
+.regions-head .link { white-space: nowrap; font-size: 12.5px; }
+.regions-unavailable { padding-top: 6px; border-top: 1px solid var(--panel-line); }
+.region-play { display: grid; gap: 6px; }
+.region-play .toggle button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.region-play .toggle svg { width: 12px; height: 12px; color: var(--gold); }
+.region-mode { display: flex; gap: 11px; align-items: flex-start; text-align: left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--panel-line-strong); background: rgba(255, 255, 255, 0.03); color: var(--ink); transition: border-color 0.15s, background 0.15s; }
+.region-mode:hover { border-color: rgba(130, 170, 230, 0.6); background: rgba(255, 255, 255, 0.06); }
+.region-mode-icon { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: rgba(59, 130, 246, 0.16); color: #93c5fd; }
+.region-mode-icon svg { width: 16px; height: 16px; }
+.region-mode-body { display: grid; gap: 1px; min-width: 0; }
+.region-mode-body strong { font-family: 'Space Grotesk', sans-serif; font-size: 14.5px; }
+.region-mode-body span { font-size: 12px; color: var(--ink-2); }
+.region-mode-body em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.regions-panel { display: grid; gap: var(--gap); }
+.regions-nav { display: flex; justify-content: space-between; align-items: center; }
+.regions-nav .link { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; }
+.regions-nav .back svg { width: 14px; height: 14px; transform: scaleX(-1); }
+.region-selected { display: grid; gap: 2px; padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(255, 246, 220, 0.45); background: rgba(255, 246, 220, 0.06); }
+.region-selected strong { font-family: 'Space Grotesk', sans-serif; font-size: 16px; }
+.region-selected span, .region-selected small { font-size: 12px; color: var(--ink-2); }
+.region-selected code { font-size: 11px; }
+.segmented.four { grid-template-columns: repeat(4, 1fr); }
+.regions-progress { display: grid; gap: 12px; }
+.region-country { display: grid; gap: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--panel-line); background: rgba(255, 255, 255, 0.02); }
+.region-country-head { display: grid; gap: 2px; }
+.region-country-head small { font-size: 11px; color: var(--ink-3); }
+.region-records { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.region-records li { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'what nums' 'status status'; gap: 1px 8px; padding: 7px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.03); font-variant-numeric: tabular-nums; }
+.region-records .what { grid-area: what; display: grid; font-size: 12.5px; font-weight: 600; }
+.region-records .what small, .region-records .nums small, .region-records .nums span { font-size: 11px; font-weight: 500; color: var(--ink-3); }
+.region-records .nums { grid-area: nums; display: grid; justify-items: end; align-content: start; }
+.region-records .nums b { font-family: 'Space Grotesk', sans-serif; font-size: 15px; }
+.region-records .status { grid-area: status; font-size: 11px; color: var(--ink-2); }
+.region-records li.none .status { color: var(--ink-3); }
 .hover-name small { font-size: 11px; font-weight: 500; color: var(--ink-3); }
 
 @media (prefers-reduced-motion: reduce) {

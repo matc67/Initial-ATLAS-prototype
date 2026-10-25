@@ -16,6 +16,7 @@ import type { GeometryCollection, Topology } from 'topojson-specification';
 import { PROFILES, validateProfile, type Admin1Unit } from '../src/data/admin1Profiles.ts';
 import { shapeDistanceKm, shapeOf, verticesOf } from '../src/game/distance.ts';
 import { boundsOf, frameOf, type LngLat } from '../src/game/geo.ts';
+import { versionOf } from '../src/game/challenges.ts';
 
 const NE_COMMIT = 'ca96624a56bd078437bca8184e78163e5039ad19';
 const NE_FILE = 'ne_10m_admin_1_states_provinces.geojson';
@@ -199,6 +200,9 @@ for (const p of PROFILES) {
   for (const u of units) kinds[u.unit.kind] = (kinds[u.unit.kind] ?? 0) + 1;
   index[p.country] = {
     enabled: p.enabled, file, count: units.length, kinds, terms: p.terms,
+    // The fingerprint of the unit list: challenge record keys are built from it (subdivisionKey), so Progress can show a
+    // country's records without loading its file.
+    unitsVersion: versionOf(features.map(f => f.properties.id)),
     bounds: boundsOf(points).map(x => +x.toFixed(3)), frame: (({ center, radiusKm }) => ({ center: center.map(x => +x.toFixed(3)), radiusKm: Math.round(radiusKm) }))(frameOf(points)),
     flags,
   };

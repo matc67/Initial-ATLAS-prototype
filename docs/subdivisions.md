@@ -2,7 +2,7 @@
 
 First-level administrative divisions (states, provinces, territories, prefectures, regions…) for every country, played through the same globe, game engine and records as countries. This document records the decisions taken, how the data is built, and the staged plan. It supersedes the subdivision parts of [geography.md](geography.md).
 
-**Status:** Phase 2 (data pipeline, Canada map view) is approved. Phase 3 (Canadian gameplay: Find the Region and Name the Region, Sprint and full) is built and awaiting review; it is still entered from the development-only Explore view until Phase 4.
+**Status:** Phases 2 and 3 are approved. Phase 4 (Explore integration and Progress) is built and awaiting review: players can now open a country's regions in Explore and play Find the Region and Name the Region. Canada is the only country with region data so far.
 
 ## Decisions
 
@@ -135,7 +135,7 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 
 `src/data/subdivisions.ts` loads the index and per-country files on demand (one cached promise each, retried after a failure, like `loadPlaces`) and decodes them. Nothing loads until a subdivision view opens.
 
-**Phase 2 entry point (development builds only):** an "Inspect subdivisions" button in Explore's country panel for countries in the index, and the URL `#subdivisions=CAN`. Production builds strip both. Phase 4 replaces them with the real Explore integration.
+**Entry point:** Explore's country panel (Phase 4, below). The URL `#subdivisions=CAN` opens a country's regions view in development builds only.
 
 ## Edge cases
 
@@ -187,6 +187,28 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 - After Show me, the camera stays on the revealed unit, as in country rounds; the player zooms back out (Find the Region does not reframe on its own).
 - On a first run, the full results mark every stat "New best", as country Full Challenges do.
 
+## Explore and Progress (Phase 4)
+
+**Explore is the entry point.** Opening a country in Explore loads the small region index (once; never at startup):
+
+- A country with region data shows a one-line shortcut under its name ("10 provinces and 3 territories · Explore and play", visible without scrolling on a phone) and a regions block among its challenges: the count in the country's own terms, "Show on the globe", and Find the Region and Name the Region with a choice of a 10-question Sprint or all of them (no choice below 10 regions). Each shows its best, or "Not played yet".
+- A country without region data shows one quiet line: "Regions of France are not available yet." Nothing broken or empty is ever offered.
+- **The regions view** (`components/Regions.tsx`, `RegionsPanel`) replaces the development inspector: the same globe framed on the country, other countries faded, region names on hover or tap, a selected region's name and kind, the games at the top, and a list of every region. "← Canada" returns to the country's panel, still selected; "World view" returns to the whole world. Development builds also show each region's id, ISO code and area, and the build's flags.
+- Navigation is a small pure module, `game/exploreNav.ts` (`clickCountry`, `clickNothing`, `openRegions`, `selectRegion`, `backToCountry`, `toWorld`, `afterRound`), tested on its own; the app applies its results. A click on another country leaves the regions view and opens that country; the ocean clears the selected region and stays; leaving a round returns to the country's regions.
+- `#subdivisions=CAN` remains a development-only shortcut.
+
+**Progress → Regions.** For every country with region data: each game (Find, Name) and length (Sprint, All) with its best score out of the maximum, first-try accuracy, best time and completion status ("Completed 3 times · 1 perfect", or "Not played yet"), how many of its challenges have been completed, and a button back to the country in Explore. Built by `regionRecords` (`game/regionRecords.ts`) from the region records store and the index alone, without loading any geometry.
+
+**Records keys.** Unchanged from Phase 3, from stable ids: `can-admin1-sprint-find@s10-13-13qavlb.sc2` = challenge id (country, game, length) @ unit-list fingerprint and scoring version. The index carries each country's `unitsVersion` (the fingerprint of its unit ids), so `subdivisionKey` builds the same key as the game without loading the country's file; a test checks the two agree. Records made for a different unit list or scoring version stay in the store and are not shown as current. Country records are never read or written by any of this.
+
+**Phase 4 results** (2026-10-25): typecheck, 140 tests and the production build pass. In the browser on desktop and on a phone with touch: no region requests at startup; the index on opening a country and Canada's file on showing its regions; France's "not available yet"; region selection on the globe and in the list; back to Canada and World view; Find and Name the Region launched from the country panel and from the regions view; × and "Back to Canada" return to the regions view; a perfect Sprint shows in Progress → Regions as 1,400 / 1,400, 100%, its time, and "Completed 1 time · 1 perfect". The country Sprint, Mystery Country and a Name the Region round still pass.
+
+**Known limitations of Phase 4**
+
+- Canada is the only country with region data; every other country shows "not available yet" (Phase 5 adds the United States, Phase 6 the rest).
+- Progress lists only records of the current unit list and scoring version; older ones are kept but not shown.
+- The Progress "Your stats · all time" summary covers countries only, by design; regions have their own section.
+
 ## Challenges (Phase 3 onwards)
 
 - Ids like `can-admin1-find` and `can-admin1-sprint-name`, with `entityType: 'admin1'` and `scopeId: 'country:CAN'`. The version comes from the target ids, as for countries, so records are only compared between identical lists.
@@ -200,7 +222,7 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 |---|---|---|
 | 2 (built) | Data pipeline; Canada profile; generic subdivision layer; development-only entry | 13 units, exact coast alignment, every unit selectable, existing modes unaffected, all checks pass |
 | 3 (built) | Gameplay: Find the Region and Name the Region on the shared engine; full and Sprint challenges; results | Canada playable end to end; country modes and records unchanged |
-| 4 | Explore integration (the real entry point, return to Explore with the country selected) and Progress records per country, mode and challenge | Countries without data show a quiet "not available yet" state |
+| 4 (built) | Explore integration (the real entry point, return to Explore with the country selected) and Progress records per country, mode and challenge | Countries without data show a quiet "not available yet" state |
 | 5 | United States (50 states; a documented policy for Washington, DC and the territories, never silently mixed in); onboarding guide for the next country | A new country is data and configuration only |
 | 6 | Worldwide in reviewed batches (Brazil, Mexico, India, Germany, Japan, Australia, France, Nigeria first); coverage manifest | Each batch validated before the next |
 
