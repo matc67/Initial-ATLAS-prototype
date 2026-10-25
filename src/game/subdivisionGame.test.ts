@@ -144,3 +144,16 @@ test('every Canadian subdivision is a round target with a name, a point on its l
   // Prince Edward Island's framing is small enough to show it clearly in Name the Region.
   assert.ok(places.get(id('PE'))!.frame!.radiusKm < 200);
 });
+
+test('ring markers: a unit carries one while it is under 10 px on screen, and loses it as the map zooms in', async () => {
+  const { ringUntilZoom } = await import('../map/pick.ts');
+  // Chandigarh, about 15 km across at 30.7°N: 2 px at India's opening view (zoom 3.4, measured in the browser).
+  const chd = ringUntilZoom(15, 30.7);
+  assert.ok(chd > 5 && chd < 6, `${chd}`);
+  const px = (km: number, lat: number, z: number) => (km * 512 * 2 ** z) / (40075 * Math.cos((lat * Math.PI) / 180));
+  assert.ok(Math.abs(px(15, 30.7, chd) - TINY_UNIT_PX) < 1e-9);
+  assert.ok(px(15, 30.7, 3.4) < 3);
+  // Large units never get one at any zoom a globe uses; Prince Edward Island does, but only zoomed far out.
+  assert.ok(ringUntilZoom(2000, 50) < 0);
+  assert.ok(ringUntilZoom(220, 46.3) < 1.5);
+});

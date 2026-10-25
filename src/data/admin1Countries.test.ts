@@ -42,7 +42,10 @@ test('every country: the profile and the built file agree, with stable ids and t
     assert.equal(meta.unitsVersion, versionOf(playableIds(set)), id);
     for (const [kind, n] of Object.entries(p.expect ?? {})) assert.equal(meta.kinds[kind], n, `${id} ${kind}`);
     assert.deepEqual((meta.others ?? []).map(o => o.id), units.filter(u => !isPlayable(u)).map(u => u.properties.id));
-    assert.deepEqual(meta.flags, [], `${id} has build flags to review`);
+    // Every build flag has been reviewed in the profile; a new one fails until it is.
+    const unreviewed = meta.flags.filter(f => !p.reviewed?.[f.split(':')[0]]);
+    assert.deepEqual(unreviewed, [], `${id} has build flags to review`);
+    for (const code of Object.keys(p.reviewed ?? {})) assert.ok(meta.flags.some(f => f.startsWith(`${code}:`)), `${id} ${code}: reviewed, but no longer flagged`);
   }
 });
 
@@ -53,12 +56,29 @@ test('every country: names and aliases match exactly one unit', () => {
   }
 });
 
+// A point strictly inside a ring, never on its edge (the edge is shared with whatever fills it): its centroid when that
+// is inside, otherwise the first inside point on a grid over its box.
+function interiorOf(ring: number[][]): LngLat {
+  const poly = turf.polygon([ring]), strictly = (q: number[]) => turf.booleanPointInPolygon(q, poly, { ignoreBoundary: true });
+  const c = turf.centroid(poly).geometry.coordinates;
+  if (strictly(c)) return c as LngLat;
+  const [w, s, e, n] = turf.bbox(poly);
+  for (let i = 1; i < 40; i++) for (let j = 1; j < 40; j++) { const q = [w + ((e - w) * i) / 40, s + ((n - s) * j) / 40]; if (strictly(q)) return q as LngLat; }
+  return c as LngLat;
+}
+
 test('every country: units cover the country map exactly, without holes or overlaps, and inside its bounds', () => {
   for (const id of ids) {
     const units = sets[id].units.features, shape = country(id);
     const total = units.reduce((n, u) => n + turf.area(u), 0), area = turf.area(shape);
     assert.ok(Math.abs(total - area) / area < 0.0005, `${id}: units ${total / 1e6} km² vs country ${area / 1e6} km²`);
-    for (const u of units) for (const p of u.geometry.type === 'Polygon' ? [u.geometry.coordinates] : u.geometry.coordinates) assert.equal(p.length, 1, `${u.properties.id} has a hole`);
+    // A hole is only ever another unit inside it (the Federal District in Goiás, Berlin in Brandenburg): never a gap.
+    for (const u of units) for (const p of u.geometry.type === 'Polygon' ? [u.geometry.coordinates] : u.geometry.coordinates) for (const hole of p.slice(1)) {
+      const inside = interiorOf(hole);
+      if (!turf.booleanPointInPolygon(inside, shape)) continue;   // a hole in the country map too: a lake or an inlet
+      assert.equal(at(sets[id], inside).length, 1, `${u.properties.id} has a hole at ${inside} that no other unit fills`);
+      assert.notDeepEqual(at(sets[id], inside), [u.properties.code]);
+    }
     let overlap = 0;
     neighboursOf(topos[id]).forEach((ns, i) => ns.filter(j => j > i).forEach(j => { const x = turf.intersect(turf.featureCollection([units[i], units[j]])); overlap += x ? turf.area(x) / 1e6 : 0; }));
     assert.ok(overlap < 1, `${id}: overlap ${overlap} km²`);
@@ -91,7 +111,7 @@ test('every country: 1 km either side of its internal borders lies in two differ
         checked++;
       }
     }
-    assert.ok(checked > 100, `${id}: only ${checked} border points checked`);
+    assert.ok(checked >= Math.min(100, 2 * set.units.features.length), `${id}: only ${checked} border points checked`);
   }
 });
 
@@ -187,4 +207,102 @@ test('profiles: a unit left out of the challenges needs a note, and declared cou
   assert.match(validateProfile(noNote, keys).join(), /DC: a unit left out of the challenges needs a note/);
   const { ['US-WY']: _, ...fortyNine } = p.units;
   assert.match(validateProfile({ ...p, units: fortyNine, exclude: { 'US-WY': 'test' } }, keys).join(), /expected 50 playable State units, found 49/);
+});
+
+// ---- Phase 6, batch 1 ---------------------------------------------------------------------------------------------------
+type Batch = { codes: string; describe: string; places: [string, LngLat, string][]; names?: [string, string | null][] };
+const BATCH1: { [id: string]: Batch } = {
+  BRA: {
+    codes: 'AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO', describe: '26 states and 1 federal district',
+    places: [['Brasília', [-47.88, -15.79], 'DF'], ['São Paulo', [-46.63, -23.55], 'SP'], ['Manaus', [-60.02, -3.1], 'AM'], ['Belo Horizonte', [-43.94, -19.92], 'MG'],
+      ['Goiânia', [-49.25, -16.68], 'GO'], ['Cuiabá', [-56.1, -15.6], 'MT'], ['Campo Grande', [-54.62, -20.47], 'MS'], ['Palmas', [-48.33, -10.18], 'TO'], ['Marajó Island', [-49.5, -0.9], 'PA']],
+    names: [['Sao Paulo', 'SP'], ['Distrito Federal', 'DF'], ['Para', 'PA'], ['Brasilia', null]],
+  },
+  MEX: {
+    codes: 'AGU BCN BCS CAM CHP CHH COA COL CMX DUR GUA GRO HID JAL MEX MIC MOR NAY NLE OAX PUE QUE ROO SLP SIN SON TAB TAM TLA VER YUC ZAC', describe: '31 states and 1 capital city',
+    places: [['Mexico City', [-99.13, 19.43], 'CMX'], ['Toluca', [-99.66, 19.29], 'MEX'], ['Guadalajara', [-103.35, 20.67], 'JAL'], ['Monterrey', [-100.31, 25.67], 'NLE'],
+      ['Mérida', [-89.62, 20.97], 'YUC'], ['Chihuahua', [-106.09, 28.63], 'CHH'], ['Ciudad Constitución', [-111.66, 25.03], 'BCS'], ['Felipe Carrillo Puerto', [-88.05, 19.58], 'ROO'], ['Cozumel', [-86.9, 20.42], 'ROO']],
+    names: [['Mexico City', 'CMX'], ['CDMX', 'CMX'], ['Ciudad de Mexico', 'CMX'], ['Estado de Mexico', 'MEX'], ['Mexico', null], ['Distrito Federal', null], ['Nuevo Leon', 'NLE']],
+  },
+  IND: {
+    codes: 'AN AP AR AS BR CH CG DH DL GA GJ HR HP JK JH KA KL LA LD MP MH MN ML MZ NL OD PB PY RJ SK TN TS TR UP UK WB', describe: '28 states and 8 union territories',
+    places: [['New Delhi', [77.21, 28.61], 'DL'], ['Pune', [73.86, 18.52], 'MH'], ['Chandigarh', [76.78, 30.73], 'CH'], ['Bengaluru', [77.59, 12.97], 'KA'], ['Hyderabad', [78.49, 17.39], 'TS'],
+      ['Kolkata', [88.36, 22.57], 'WB'], ['Leh', [77.58, 34.16], 'LA'], ['Srinagar', [74.8, 34.08], 'JK'], ['Raipur', [81.63, 21.25], 'CG'], ['Bhubaneswar', [85.82, 20.3], 'OD'],
+      ['Dehradun', [78.03, 30.32], 'UK'], ['Itanagar', [93.6, 27.1], 'AR'], ['Gangtok', [88.61, 27.33], 'SK'], ['Shimla', [77.17, 31.1], 'HP']],
+    names: [['Odisha', 'OD'], ['Orissa', null], ['NCT of Delhi', 'DL'], ['Pondicherry', null], ['Telangana', 'TS']],
+  },
+  DEU: {
+    codes: 'BW BY BE BB HB HH HE MV NI NW RP SL SN ST SH TH', describe: '16 states',
+    places: [['Berlin', [13.4, 52.52], 'BE'], ['Potsdam', [13.06, 52.4], 'BB'], ['Munich', [11.58, 48.14], 'BY'], ['Hamburg', [10.0, 53.55], 'HH'], ['Bremen', [8.8, 53.08], 'HB'],
+      ['Bremerhaven, an exclave of Bremen', [8.58, 53.55], 'HB'], ['Cologne', [6.96, 50.94], 'NW'], ['Stuttgart', [9.18, 48.78], 'BW'], ['Dresden', [13.74, 51.05], 'SN'], ['Frankfurt', [8.68, 50.11], 'HE'],
+      ['Saarbrücken', [7.0, 49.24], 'SL'], ['Rügen', [13.4, 54.45], 'MV'], ['Kiel', [10.13, 54.32], 'SH'], ['Erfurt', [11.03, 50.98], 'TH'], ['Magdeburg', [11.63, 52.13], 'ST'], ['Koblenz', [7.59, 50.36], 'RP'], ['Hanover', [9.73, 52.37], 'NI']],
+    names: [['Bayern', 'BY'], ['Bavaria', 'BY'], ['NRW', 'NW'], ['Thuringen', 'TH'], ['Mecklenburg-Vorpommern', 'MV']],
+  },
+  JPN: {
+    codes: Array.from({ length: 47 }, (_, i) => String(i + 1).padStart(2, '0')).join(' '), describe: '47 prefectures',
+    places: [['Shinjuku, Tokyo', [139.7, 35.69], '13'], ['Sapporo', [141.35, 43.06], '01'], ['Osaka', [135.5, 34.69], '27'], ['Kyoto', [135.77, 35.01], '26'], ['Nagoya', [136.91, 35.18], '23'],
+      ['Fukuoka', [130.4, 33.59], '40'], ['Sendai', [140.87, 38.27], '04'], ['Kirishima', [130.76, 31.74], '46'], ['Amami Ōshima', [129.4, 28.3], '46'], ['Hachijō-jima, Tokyo', [139.79, 33.1], '13'],
+      ['Matsuyama', [132.77, 33.84], '38'], ['Sado Island', [138.4, 38.05], '15'], ['Okinawa Island', [127.8, 26.4], '47'],
+      // The Amami Islands are Kagoshima's (Natural Earth files them under Okinawa; the profile moves them).
+      ['Tokunoshima', [128.95, 27.78], '46'], ['Yoronjima', [128.42, 27.04], '46'], ['Yakushima', [130.53, 30.35], '46']],
+    names: [['Hokkaidō', '01'], ['Tokyo', '13'], ['Osaka', '27'], ['Kochi', '39']],
+  },
+  AUS: {
+    codes: 'NSW QLD SA TAS VIC WA ACT NT', describe: '6 states and 2 territories',
+    places: [['Parramatta, Sydney', [151.0, -33.8], 'NSW'], ['Canberra', [149.13, -35.28], 'ACT'], ['Melbourne', [144.96, -37.81], 'VIC'], ['Brisbane', [153.03, -27.47], 'QLD'],
+      ['Adelaide', [138.6, -34.93], 'SA'], ['Perth', [115.86, -31.95], 'WA'], ['Hobart', [147.33, -42.88], 'TAS'], ['Katherine', [132.26, -14.47], 'NT'], ['Alice Springs', [133.88, -23.7], 'NT'],
+      ['Kangaroo Island', [137.2, -35.8], 'SA'], ['Jervis Bay Territory', [150.692, -35.1532], 'JBT']],
+    names: [['NSW', 'NSW'], ['ACT', 'ACT'], ['Jervis Bay Territory', null]],
+  },
+  FRA: {
+    codes: 'ARA BFC BRE CVL 20R GES HDF IDF NOR NAQ OCC PDL PAC', describe: '13 regions',
+    places: [['Paris', [2.35, 48.86], 'IDF'], ['Lyon', [4.84, 45.76], 'ARA'], ['Marseille', [5.4, 43.3], 'PAC'], ['Toulouse', [1.44, 43.6], 'OCC'], ['Bordeaux', [-0.58, 44.84], 'NAQ'],
+      ['Nantes', [-1.55, 47.22], 'PDL'], ['Rennes', [-1.68, 48.11], 'BRE'], ['Rouen', [1.1, 49.44], 'NOR'], ['Lille', [3.06, 50.63], 'HDF'], ['Strasbourg', [7.75, 48.58], 'GES'],
+      ['Orléans', [1.9, 47.9], 'CVL'], ['Dijon', [5.04, 47.32], 'BFC'], ['Corte, Corsica', [9.15, 42.31], '20R']],
+    names: [['Normandie', 'NOR'], ['Bretagne', 'BRE'], ['Corse', '20R'], ['PACA', 'PAC'], ['Ile de France', 'IDF']],
+  },
+  NGA: {
+    codes: 'AB AD AK AN BA BY BE BO CR DE EB ED EK EN FC GO IM JI KD KN KT KE KO KW LA NA NI OG ON OS OY PL RI SO TA YO ZA', describe: '36 states and 1 federal capital territory',
+    places: [['Abuja', [7.49, 9.06], 'FC'], ['Ikeja, Lagos', [3.35, 6.6], 'LA'], ['Kano', [8.52, 12.0], 'KN'], ['Ibadan', [3.9, 7.38], 'OY'], ['Port Harcourt', [7.0, 4.82], 'RI'],
+      ['Enugu', [7.5, 6.45], 'EN'], ['Maiduguri', [13.16, 11.85], 'BO'], ['Kaduna', [7.44, 10.52], 'KD'], ['Jos', [8.89, 9.9], 'PL'], ['Benin City', [5.63, 6.34], 'ED'], ['Lafia', [8.52, 8.49], 'NA']],
+    names: [['FCT', 'FC'], ['Nasarawa', 'NA'], ['Akwa Ibom', 'AK']],
+  },
+};
+
+for (const [id, b] of Object.entries(BATCH1)) {
+  test(`batch 1, ${id}: the official set, places in the right unit, typed names`, () => {
+    const set = sets[id], meta = index.countries[id];
+    assert.ok(set, `${id} is not built`);
+    assert.equal(meta.enabled, true);
+    assert.equal(describeCount(meta), b.describe);
+    assert.deepEqual(playableIds(set).map(x => x.split(':')[2]).sort(), b.codes.split(' ').sort());
+    for (const [name, p, code] of b.places) assert.deepEqual(at(set, p), [code], `${id}: ${name}`);
+    const places = subdivisionPlayables(set);
+    for (const [typed, code] of b.names ?? []) {
+      const hits = [...places.values()].filter(u => nameMatches(u, typed)).map(u => u.id.split(':')[2]);
+      assert.deepEqual(hits, code ? [code] : [], `${id}: "${typed}"`);
+    }
+  });
+}
+
+test('batch 1: enclaves, merged islets and units left out are handled as their profiles say', () => {
+  // Enclaves: each sits inside a hole of the unit around it, and is its own unit.
+  assert.deepEqual(at(sets.BRA, [-47.88, -15.79]), ['DF']);
+  assert.deepEqual(at(sets.DEU, [13.4, 52.52]), ['BE']);
+  assert.deepEqual(at(sets.AUS, [149.13, -35.28]), ['ACT']);
+  // Rows merged into another unit: one unit each, listing every source row.
+  assert.equal(sets.AUS.byId.get('admin1:AUS:NSW')!.properties.src.ne.length, 2);   // with Lord Howe Island
+  assert.equal(sets.AUS.byId.get('admin1:AUS:TAS')!.properties.src.ne.length, 2);   // with Macquarie Island
+  assert.equal(sets.AUS.byId.get('admin1:AUS:NSW')!.properties.src.iso, 'AU-NSW');
+  assert.equal(sets.MEX.byId.get('admin1:MEX:YUC')!.properties.src.ne.length, 2);   // with Arrecife Alacranes
+  // Mexico City keeps its source code as a crosswalk; its ATLAS code is the current one.
+  assert.equal(sets.MEX.byId.get('admin1:MEX:CMX')!.properties.src.iso, 'MX-DIF');
+  // India's updated codes keep the source codes as a crosswalk.
+  assert.equal(sets.IND.byId.get('admin1:IND:OD')!.properties.src.iso, 'IN-OR');
+  // Jervis Bay Territory: drawn and named, never asked.
+  assert.equal(sets.AUS.byId.get('admin1:AUS:JBT')!.properties.playable, false);
+  assert.deepEqual(index.countries.AUS.others?.map(o => o.id), ['admin1:AUS:JBT']);
+  // France: 101 departments grouped into the 13 metropolitan regions; the overseas regions are not part of it.
+  assert.equal(sets.FRA.units.features.reduce((n, u) => n + u.properties.src.ne.length, 0), 96);
+  for (const p of [[-53.1, 3.9], [55.5, -21.1], [-61.0, 14.65]] as LngLat[]) assert.deepEqual(at(sets.FRA, p), []);
 });

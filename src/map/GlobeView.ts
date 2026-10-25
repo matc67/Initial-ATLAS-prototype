@@ -5,7 +5,7 @@ import type { GeometryCollection, Topology } from 'topojson-specification';
 import { distanceKm, type LngLat } from '../game/geo';
 import { HEAT_STOPS } from '../game/mystery';
 import { isletsOf, outlinesOf } from './outlines';
-import { markerActive, reachFor, resolvePick, resolveSubPick, ringRadiusAt } from './pick';
+import { markerActive, reachFor, resolvePick, resolveSubPick, ringRadiusAt, ringUntilZoom } from './pick';
 
 // Round states: `found` = completed this round, `answer` = shown after the last miss, `target` = the country to name.
 // Progress states, from one recorded run: `first` = correct first try, `retry` = needed more attempts, `hinted` = Show me.
@@ -116,7 +116,7 @@ const BORDER = 'rgba(172, 196, 228, 0.5)';
 // Islands below this area get the land-edge trace: about 3 × 3 pixels at the zoom of a World round.
 const ISLET_KM2 = 3000;
 // Subdivision layers, all empty until a subdivision view opens (see showSubdivisions).
-const SUB_SOURCES = ['sub-units', 'sub-islets'] as const;
+const SUB_SOURCES = ['sub-units', 'sub-islets', 'sub-rings'] as const;
 const SUB_PICK = ['sub-fill', 'sub-edge'];
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 const selectedSub = ['boolean', ['feature-state', 'selected'], false] as ExpressionSpecification;
@@ -127,6 +127,24 @@ function boxOf(g: GeoJSON.Geometry): [number, number, number, number] {
   if ('coordinates' in g) walk(g.coordinates);
   return [w, s, e, n];
 }
+// Ring markers for subdivisions too small to see at the current zoom (Lakshadweep, Chandigarh, Mexico City): one point
+// per unit with the zoom below which it is under TINY_UNIT_PX (ringUntilZoom). Shown while the zoom is below it. A unit is
+// measured by its largest part, so an archipelago of specks spread over a wide sea (Lakshadweep) still gets one.
+const kmAcross = ([w, s, e, n]: [number, number, number, number]) => Math.max((e - w) * 111.32 * Math.cos((((s + n) / 2) * Math.PI) / 180), (n - s) * 110.57);
+function ringsOf(units: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
+  return { type: 'FeatureCollection', features: units.features.flatMap(f => {
+    const g = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+    const parts = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+    const km = Math.max(...parts.map(p => kmAcross(boxOf({ type: 'Polygon', coordinates: p }))));
+    const lat = f.properties!.label[1];
+    const until = ringUntilZoom(km, lat);
+    return until > 0 ? [{ type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: f.properties!.label }, properties: { id: f.properties!.id, color: f.properties!.color, playable: f.properties!.playable ?? true, until } }] : [];
+  }) };
+}
+// 1 while the zoom is below a ring's `until`, else 0: zoom may only drive a top-level step, so the step runs over fixed
+// zoom stops and each stop compares with the feature's own `until`.
+const ringShown = (on: number): ExpressionSpecification => ['step', ['zoom'], ['case', ['>', ['get', 'until'], 0], on, 0],
+  ...Array.from({ length: 36 }, (_, i) => 0.25 * (i + 1)).flatMap(z => [z, ['case', ['>', ['get', 'until'], z], on, 0]])] as unknown as ExpressionSpecification;
 const LAND_EDGE = ['interpolate', ['linear'], ['zoom'], 1, 1.1, 4, 0.9, 7, 0.6] as ExpressionSpecification;
 // Region fades: each country carries an `act` feature-state from 0 (neutral land) to 1 (full colour) that is animated per
 // country. Layers and their filters never change, so a region switch never makes MapLibre rebuild its tiles.
@@ -345,6 +363,12 @@ export class GlobeView {
       'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.2, 5, 2.4],
       'line-opacity': ['case', selectedSub, 1, ['match', status, ['answer', 'target', 'missed'], true, false], 0.9, hovered, 0.55, 0],
     } }, 'missed-line');
+    map.addLayer({ id: 'sub-ring', type: 'circle', source: 'sub-rings', paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, 5.5, 5, 8],
+      'circle-color': fill, 'circle-opacity': ringShown(0.45),
+      'circle-stroke-color': ['match', status, 'found', COLORS.completedRing, ['answer', 'target'], COLORS.gold, 'missed', COLORS.missedLine, ['case', selectedSub, '#ffffff', '#dbe8ff']],
+      'circle-stroke-width': ['case', hovered, 2.2, 1.4], 'circle-stroke-opacity': ringShown(1),
+    } });
     map.addLayer({ id: 'sub-flash', type: 'line', source: 'sub-units', filter: ['==', ['get', 'id'], ''], layout: { 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': 0, 'line-blur': 0.6, 'line-opacity': 0 } });
   }
 
@@ -356,6 +380,7 @@ export class GlobeView {
     (this.map.getSource('sub-units') as maplibregl.GeoJSONSource).setData(data?.units ?? EMPTY);
     (this.map.getSource('sub-islets') as maplibregl.GeoJSONSource).setData(data ? isletsOf(data.units, ISLET_KM2) : EMPTY);
     (this.map.getSource('sub-borders') as maplibregl.GeoJSONSource).setData(data?.borders ?? EMPTY);
+    (this.map.getSource('sub-rings') as maplibregl.GeoJSONSource).setData(data ? ringsOf(data.units) : EMPTY);
     for (const id of Object.keys(this.subStatuses)) if (this.subIds.includes(id)) this.setSubState(id, { status: null });
     this.subStatuses = {};
     this.subIds = data ? data.units.features.map(f => String(f.properties?.id)) : [];
@@ -469,6 +494,7 @@ export class GlobeView {
     this.theme = theme;
     this.map.setPaintProperty('sub-fill', 'fill-color', subFill(theme));
     this.map.setPaintProperty('sub-edge', 'line-color', subFill(theme));
+    this.map.setPaintProperty('sub-ring', 'circle-color', subFill(theme));
     this.map.setPaintProperty('country-active', 'fill-color', activeColor(theme));
     this.map.setPaintProperty('land-edge-active', 'line-color', activeColor(theme));
     this.map.setPaintProperty('marker-ring', 'circle-color', ringColor(theme));

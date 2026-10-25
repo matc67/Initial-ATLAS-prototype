@@ -12,7 +12,8 @@
     "places": "node scripts/build-places.ts",
     "admin1": "node scripts/build-admin1.ts",
     "test": "node --test 'src/**/*.test.ts'",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "admin1:audit": "node scripts/audit-admin1.ts"
   },
   "dependencies": {
     "maplibre-gl": "^5.6.0",

@@ -108,20 +108,21 @@ function colours(adj: number[][]): number[] {
   return colour;
 }
 
-// The points of a shape's core: its parts, largest first, until they hold CORE_SHARE of its area.
-function corePoints(shape: Shape): LngLat[] {
+// A shape's core: its parts, largest first, until they hold CORE_SHARE of its area.
+function coreParts(shape: Shape): Feature<Polygon>[] {
   const parts = turf.flatten(shape).features.map(f => ({ f, a: turf.area(f) })).sort((x, y) => y.a - x.a);
   const total = parts.reduce((n, x) => n + x.a, 0), core: typeof parts = [];
   let sum = 0;
   for (const x of parts) { if (core.length && sum >= CORE_SHARE * total) break; core.push(x); sum += x.a; }
-  return core.flatMap(x => verticesOf(x.f.geometry));
+  return core.map(x => x.f);
 }
+const corePoints = (shape: Shape): LngLat[] => coreParts(shape).flatMap(f => verticesOf(f.geometry));
 const rounded = ({ center, radiusKm }: { center: LngLat; radiusKm: number }) => ({ center: center.map(x => +x.toFixed(3)), radiusKm: Math.round(radiusKm) });
 
-// A point on the unit's land for labels and flights: Natural Earth's label point when it is on the land, otherwise a
-// point on the largest part.
+// A point on the unit's land for labels and flights: Natural Earth's label point when it is on the unit's core (so it is
+// always in the unit's framing; Kagoshima's is on an outlying island), otherwise a point on the largest part.
 function labelOf(shape: Shape, ne: LngLat): LngLat {
-  if (turf.booleanPointInPolygon(ne, shape)) return ne;
+  if (coreParts(shape).some(f => turf.booleanPointInPolygon(ne, f))) return ne;
   const largest = turf.flatten(shape).features.reduce((a, b) => (turf.area(b) > turf.area(a) ? b : a));
   return turf.pointOnFeature(largest).geometry.coordinates as LngLat;
 }
@@ -132,12 +133,23 @@ const countryTopo = JSON.parse(countryText) as Topology<{ countries: GeometryCol
 const countryShapes = new Map((feature(countryTopo, countryTopo.objects.countries) as FeatureCollection).features.map(f => [String(f.properties?.id), f as Shape]));
 mkdirSync(OUT, { recursive: true });
 
+// `npm run admin1 -- JPN FRA` rebuilds only those countries and keeps every other country's file and index entry as built.
+const only = process.argv.slice(2);
+for (const id of only) if (!PROFILES.some(p => p.country === id)) throw new Error(`${id} has no profile`);
+const previous = only.length && existsSync(`${OUT}/index.json`) ? JSON.parse(readFileSync(`${OUT}/index.json`, 'utf8')).countries : {};
 const index: Record<string, unknown> = {};
 const files: string[] = [];
 for (const p of PROFILES) {
+  if (only.length && !only.includes(p.country) && previous[p.country]) {
+    index[p.country] = previous[p.country];
+    files.push(readFileSync(`public/data/${previous[p.country].file}`, 'utf8'));
+    continue;
+  }
   const t0 = performance.now();
   const rows = raw.features.filter(f => p.sources.includes(f.properties?.adm0_a3)) as Shape[];
   const keyOf = (f: Shape) => String(p.groupBy ? f.properties[p.groupBy] : f.properties[p.key]);
+  // The unit a row belongs to: its own key, or the unit it is merged into.
+  const unitOf = (f: Shape) => p.mergeInto?.[keyOf(f)]?.into ?? keyOf(f);
   const errors = validateProfile(p, [...new Set(rows.map(keyOf))]);
   if (errors.length) throw new Error(`${p.country} profile:\n  ${errors.join('\n  ')}`);
   const country = countryShapes.get(p.country);
@@ -146,9 +158,21 @@ for (const p of PROFILES) {
 
   // 1. Source rows → units (merged when the profile groups them), simplified together.
   const units: Unit[] = Object.entries(p.units).map(([key, unit]) => {
-    const own = rows.filter(r => keyOf(r) === key);
+    const own = rows.filter(r => unitOf(r) === key);
     return { key, unit, rows: own, shape: union(own.map(r => turf.feature(r.geometry, {}) as Shape))! };
   });
+  // Whole islands Natural Earth files under the wrong unit move to the right one (no line is drawn or cut).
+  for (const m of p.moveParts ?? []) {
+    const from = units.find(u => u.key === m.from)!, to = units.find(u => u.key === m.to)!;
+    const [w, s, e, n] = m.bbox, inBox = (f: Feature) => { const [a, b, c, d] = turf.bbox(f); return a >= w && b >= s && c <= e && d <= n; };
+    const parts = turf.flatten(from.shape).features, moving = parts.filter(inBox);
+    const cut = parts.filter(f => !inBox(f) && turf.booleanIntersects(f, turf.bboxPolygon(m.bbox)));
+    if (!moving.length) throw new Error(`${p.country}: moveParts ${m.from} → ${m.to} moves nothing`);
+    if (cut.length) throw new Error(`${p.country}: moveParts ${m.from} → ${m.to} would cut ${cut.length} part(s) across its box`);
+    from.shape = union(parts.filter(f => !inBox(f)) as Shape[])!;
+    to.shape = union([to.shape, ...moving as Shape[]])!;
+    console.log(`${p.country}: moved ${moving.length} parts (${Math.round(moving.reduce((x, f) => x + km2(f), 0)).toLocaleString('en-US')} km²) from ${m.from} to ${m.to}`);
+  }
   const simplified = simplifyTogether(units);
   simplified.shapes.forEach((s, i) => { units[i].shape = s; });
 
@@ -189,7 +213,8 @@ for (const p of PROFILES) {
 
   // 4. Properties, colours and output on the country file's grid.
   const features = finals.map((shape, i) => {
-    const u = units[i], first = u.rows[0].properties;
+    // The unit's own main row (not an islet merged into it) gives its label point, ISO code and Wikidata id.
+    const u = units[i], first = [...u.rows].sort((a, b) => Number(keyOf(b) === u.key) - Number(keyOf(a) === u.key) || km2(b) - km2(a))[0].properties;
     return turf.feature(shape.geometry, {
       id: `admin1:${p.country}:${u.unit.code}`, country: p.country, code: u.unit.code, name: u.unit.name, kind: u.unit.kind,
       aliases: u.unit.aliases ?? [], ...(u.unit.abbrev ? { abbrev: u.unit.abbrev } : {}),

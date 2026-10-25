@@ -1,6 +1,6 @@
 {
-  "version": "de34e216792d",
-  "builtAt": "2026-10-25T15:33:26.981Z",
+  "version": "f6c72b890280",
+  "builtAt": "2026-10-25T19:20:59.310Z",
   "source": {
     "name": "Natural Earth Admin 1 States and Provinces 1:10m",
     "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
@@ -94,6 +94,293 @@
         "radiusKm": 4717
       },
       "flags": []
+    },
+    "BRA": {
+      "enabled": true,
+      "file": "admin1/BRA.topo.json",
+      "count": 27,
+      "kinds": {
+        "State": 26,
+        "Federal district": 1
+      },
+      "terms": {
+        "singular": "state",
+        "plural": "states",
+        "kinds": [
+          {
+            "singular": "state",
+            "plural": "states"
+          },
+          {
+            "singular": "federal district",
+            "plural": "federal districts"
+          }
+        ]
+      },
+      "unitsVersion": "27-16w2z6j",
+      "bounds": [
+        -74.018,
+        -33.742,
+        -34.794,
+        5.267
+      ],
+      "frame": {
+        "center": [
+          -54.406,
+          -14.238
+        ],
+        "radiusKm": 2458
+      },
+      "flags": []
+    },
+    "MEX": {
+      "enabled": true,
+      "file": "admin1/MEX.topo.json",
+      "count": 32,
+      "kinds": {
+        "State": 31,
+        "Capital city": 1
+      },
+      "terms": {
+        "singular": "state",
+        "plural": "states",
+        "kinds": [
+          {
+            "singular": "state",
+            "plural": "states"
+          },
+          {
+            "singular": "capital city",
+            "plural": "capital cities"
+          }
+        ]
+      },
+      "unitsVersion": "32-p6udrr",
+      "bounds": [
+        -117.125,
+        14.546,
+        -86.735,
+        32.713
+      ],
+      "frame": {
+        "center": [
+          -101.93,
+          23.629
+        ],
+        "radiusKm": 1786
+      },
+      "flags": []
+    },
+    "IND": {
+      "enabled": true,
+      "file": "admin1/IND.topo.json",
+      "count": 36,
+      "kinds": {
+        "State": 28,
+        "Union territory": 8
+      },
+      "terms": {
+        "singular": "state or union territory",
+        "plural": "states and union territories",
+        "kinds": [
+          {
+            "singular": "state",
+            "plural": "states"
+          },
+          {
+            "singular": "union territory",
+            "plural": "union territories"
+          }
+        ]
+      },
+      "unitsVersion": "36-13wwd3b",
+      "bounds": [
+        68.143,
+        6.746,
+        97.363,
+        35.495
+      ],
+      "frame": {
+        "center": [
+          82.753,
+          21.12
+        ],
+        "radiusKm": 1994
+      },
+      "flags": [
+        "AN: 44 km² of the source unit lies outside ATLAS's IND and was left out",
+        "LD: 1 km² of the source unit lies outside ATLAS's IND and was left out"
+      ]
+    },
+    "DEU": {
+      "enabled": true,
+      "file": "admin1/DEU.topo.json",
+      "count": 16,
+      "kinds": {
+        "State": 16
+      },
+      "terms": {
+        "singular": "state",
+        "plural": "states"
+      },
+      "unitsVersion": "16-1hfammk",
+      "bounds": [
+        5.852,
+        47.271,
+        15.021,
+        55.065
+      ],
+      "frame": {
+        "center": [
+          10.437,
+          51.168
+        ],
+        "radiusKm": 454
+      },
+      "flags": []
+    },
+    "JPN": {
+      "enabled": true,
+      "file": "admin1/JPN.topo.json",
+      "count": 47,
+      "kinds": {
+        "Prefecture": 47
+      },
+      "terms": {
+        "singular": "prefecture",
+        "plural": "prefectures"
+      },
+      "unitsVersion": "47-sl4nup",
+      "bounds": [
+        122.938,
+        24.257,
+        145.825,
+        45.52
+      ],
+      "frame": {
+        "center": [
+          134.382,
+          34.889
+        ],
+        "radiusKm": 1601
+      },
+      "flags": [
+        "47: 19 km² of the source unit lies outside ATLAS's JPN and was left out"
+      ]
+    },
+    "AUS": {
+      "enabled": true,
+      "file": "admin1/AUS.topo.json",
+      "count": 8,
+      "kinds": {
+        "State": 6,
+        "Territory": 2
+      },
+      "terms": {
+        "singular": "state or territory",
+        "plural": "states and territories",
+        "kinds": [
+          {
+            "singular": "state",
+            "plural": "states"
+          },
+          {
+            "singular": "territory",
+            "plural": "territories"
+          }
+        ]
+      },
+      "others": [
+        {
+          "id": "admin1:AUS:JBT",
+          "name": "Jervis Bay Territory",
+          "kind": "Territory",
+          "note": "A small territory of about 70 km² on the coast of New South Wales, administered by the federal government. It is not one of the 6 states and 2 mainland territories played here."
+        }
+      ],
+      "unitsVersion": "8-1jnm3yq",
+      "bounds": [
+        113.157,
+        -43.64,
+        153.631,
+        -10.689
+      ],
+      "frame": {
+        "center": [
+          133.394,
+          -27.164
+        ],
+        "radiusKm": 2218
+      },
+      "flags": []
+    },
+    "FRA": {
+      "enabled": true,
+      "file": "admin1/FRA.topo.json",
+      "count": 13,
+      "kinds": {
+        "Region": 13
+      },
+      "terms": {
+        "singular": "region",
+        "plural": "regions"
+      },
+      "unitsVersion": "13-18z1byl",
+      "bounds": [
+        -4.783,
+        41.366,
+        9.559,
+        51.088
+      ],
+      "frame": {
+        "center": [
+          2.388,
+          46.227
+        ],
+        "radiusKm": 769
+      },
+      "flags": []
+    },
+    "NGA": {
+      "enabled": true,
+      "file": "admin1/NGA.topo.json",
+      "count": 37,
+      "kinds": {
+        "State": 36,
+        "Federal capital territory": 1
+      },
+      "terms": {
+        "singular": "state",
+        "plural": "states",
+        "kinds": [
+          {
+            "singular": "state",
+            "plural": "states"
+          },
+          {
+            "singular": "federal capital territory",
+            "plural": "federal capital territories"
+          }
+        ]
+      },
+      "unitsVersion": "37-13gwsh3",
+      "bounds": [
+        2.672,
+        4.272,
+        14.67,
+        13.88
+      ],
+      "frame": {
+        "center": [
+          8.671,
+          9.076
+        ],
+        "radiusKm": 744
+      },
+      "flags": [
+        "BY: 50 km² of the source unit lies outside ATLAS's NGA and was left out",
+        "RI: 77 km² of the source unit lies outside ATLAS's NGA and was left out"
+      ]
     }
   }
 }

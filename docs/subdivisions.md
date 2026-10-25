@@ -2,7 +2,7 @@
 
 First-level administrative divisions (states, provinces, territories, prefectures, regions…) for every country, played through the same globe, game engine and records as countries. This document records the decisions taken, how the data is built, and the staged plan. It supersedes the subdivision parts of [geography.md](geography.md).
 
-**Status:** Phases 2–4 are built. Phase 5 (the United States, and the onboarding process for the next country) is built and awaiting review. Canada and the United States have region data; Phase 6 (worldwide) has not started.
+**Status:** Phases 2–5 are built. Phase 6 (worldwide) is under way: the audit and coverage manifest are done and batch 1 (Brazil, Mexico, India, Germany, Japan, Australia, France, Nigeria) is built and awaiting review. 10 countries have region data; coverage is in [subdivision-coverage.md](subdivision-coverage.md).
 
 ## Decisions
 
@@ -164,7 +164,10 @@ Where the gap between the two coastlines is thinner than one grid cell (about 50
 | Crimea and Sevastopol | Inside Russia (Natural Earth's de facto view) | Under Russia (`adm0_a3: RUS`), with Ukrainian ISO codes UA-43 and UA-40 | Inconsistent with how ATLAS plays Western Sahara, Cyprus and Somalia whole, along internationally recognised lines. A policy decision for the country map; the subdivision build will follow whichever line it uses. |
 | Western Sahara | ATLAS plays the territory whole (south of 27°40′N) | Morocco's regions MA-15 and MA-16 extend over it | Morocco's profile must clip or exclude them; Western Sahara gets no subdivision challenge until reviewed. |
 | Somaliland, Northern Cyprus, Baikonur, Guantánamo Bay | Merged into Somalia, Cyprus, Kazakhstan and Cuba | Separate rows under SOL, CYN, KAB, USG | Each country's profile lists these in `sources` or excludes them, with a reason. Somalia's data in the Somaliland area is incomplete. |
-| Kashmir | India and Pakistan as Natural Earth draws them | IN-JK, IN-LA, PK-GB and PK-JK match the country map | Consistent today; recheck when India is added. |
+| Kashmir | India and Pakistan as Natural Earth draws them; Siachen and Aksai Chin are separate, non-playable land | IN-JK and IN-LA match the country map | **Checked with India (batch 1):** consistent, no build flags. Recheck when Pakistan and China are added. |
+| Arunachal Pradesh | In India | IN-AR, in India | Claimed by China. Played as India's, following the country map; noted in India's profile. |
+| Southern Kuril Islands | In Russia | Not in Hokkaido | Claimed by Japan. Following the country map; noted in Japan's profile. |
+| Liancourt Rocks, Senkaku Islands | Liancourt in South Korea's shape; the Senkakus are not drawn | In no Japanese unit | Claimed by Japan (both) and by South Korea and China/Taiwan. Nothing changed; noted here. |
 
 ## Gameplay (Phase 3)
 
@@ -242,6 +245,70 @@ The same `playable: false` mechanism serves any country with a unit that is mapp
 - The games are still called Find the Region and Name the Region for every country (their descriptions use the country's own word: "We name a state; you click it.").
 - Two-letter postal codes ("NY") are deliberately not accepted as typed answers.
 
+## Worldwide (Phase 6)
+
+### Data and licensing audit
+
+| Source | Licence | Verdict |
+|---|---|---|
+| **Natural Earth Admin-1 1:10m** (in use) | Public domain | Used for every country: one consistent release, the same one as the country map, which its outer edges match (99–100% shared vertices). |
+| geoBoundaries (gbOpen) | CC BY 4.0 for most countries; some releases under other terms | A fallback for a country Natural Earth gets wrong; would need attribution in the app and a per-country licence check. Not used. |
+| GADM | Free for non-commercial use only; no redistribution | Not usable. |
+| OpenStreetMap | ODbL (share-alike) | Not used: the share-alike terms would extend to the derived files. |
+| Wikidata | CC0 | Only as a crosswalk (each unit's `src.wikidata`). |
+
+**Coverage manifest:** `npm run admin1:audit` (`scripts/audit-admin1.ts`) audits Natural Earth's rows for all 200 countries and writes [subdivision-coverage.md](subdivision-coverage.md):
+- Supported countries, and each country's row count and types.
+- Clean, unique ISO codes, and rows without a name or type.
+- Rows coded under another country (Crimea's UA-43 and UA-40 under Russia).
+- Rows that probably need grouping (more than 60).
+- The rows' area against the country map, where a large difference means disputed or misattributed land (Morocco +43% for Western Sahara, France +16% for its overseas departments).
+
+Each country gets a grade (A 134, B 52, C 14) as a starting point for review, and a proposed order for the next batches. The row count is not the official count: each profile is checked against an official source and declares its own `expect`.
+
+### Policy: capital districts and territories
+
+Each country plays its first-level divisions as its own constitution or national government lists them. A unit that is mapped but not one of that set is drawn and named, never asked (`playable: false`). Nothing is merged into a neighbour.
+
+| Country | Played | Drawn, not played | Why |
+|---|---|---|---|
+| United States | 50 states | Washington, DC | The 50 states are the constituent units; DC is a federal district outside them (Phase 5). |
+| Brazil | 26 states + Federal District | – | The constitution lists 27 federative units, the Federal District among them. |
+| Mexico | 31 states + Mexico City | – | The constitution lists 32 federal entities. |
+| Nigeria | 36 states + Federal Capital Territory | – | The constitution lists 36 states and the FCT. |
+| India | 28 states + 8 union territories | – | The national list of states and union territories. |
+| Australia | 6 states + ACT + Northern Territory | Jervis Bay Territory | The 6 states and 2 self-governing mainland territories; Jervis Bay (about 70 km²) is administered federally. |
+| France | 13 metropolitan regions | – (overseas regions are separate land) | The 5 overseas regions are not part of ATLAS's France on the country map. |
+
+Overseas and external territories (Puerto Rico, Guam, French Guiana, Réunion, Christmas Island…) follow the country map: playable countries are countries, and other land stays non-playable.
+
+### New generic tools (all in the profile and the build; no game or map code names a country)
+
+- `mergeInto`: rows that are part of another unit (Macquarie Island → Tasmania; Arrecife Alacranes → Yucatán), each with a reason. Rows that share a code are merged automatically (Lord Howe Island, coded AU-NSW). The unit takes its label, ISO code and Wikidata id from its own main row.
+- `moveParts`: whole islands that Natural Earth files under the wrong unit move to the right one, by a box, with a reason. The build stops if a part would be cut, or if nothing moves; no line is ever drawn. Used once: **the Amami Islands are Kagoshima's, but Natural Earth has them in Okinawa** (6 islands, 1,150 km²). The place tests found this.
+- `reviewed`: build flags reviewed by hand, by unit code, with what was found. A test fails on any flag not reviewed, and on a reviewed flag that no longer occurs. Batch 1's five flags (Andaman and Nicobar, Lakshadweep, Okinawa, Bayelsa, Rivers) are all islets and mangrove coast that the country map draws as sea: up to 77 km² in total per unit, in pieces of 3 km² or less, none on another country. They are left out, since the country map is the authority.
+- **Codes** are the current ISO 3166-2 codes, set in the profile where Natural Earth's are out of date (India's CG, OD, TS and UK from 2023; Mexico City's CMX from 2016). The source code stays in `src.iso` as a crosswalk.
+- **Grouping**: France's 96 metropolitan departments are grouped into its 13 regions by Natural Earth's `region` field.
+- **Labels** sit on a unit's core, so each is inside its unit's framing (Kagoshima's source label is on an outlying island).
+- **Enclaves**: the coverage test allows a hole only when another unit fills it (the Federal District in Goiás, Berlin in Brandenburg, the ACT in New South Wales, Yanam in Andhra Pradesh) or when the country map has the same hole.
+- **Ring markers** for units too small to see. A unit under 10 px across at the current zoom, measured by its largest part, carries a ring like a tiny country's, which fades out as the unit grows (`ringUntilZoom` in `map/pick.ts`). Clicks are unchanged: the tap reach and the too-close-to-call zoom already cover a ring's area. On desktop, India's opening view rings Lakshadweep, Chandigarh, Delhi, Puducherry and Dadra and Nagar Haveli and Daman and Diu; the US rings Rhode Island, DC and Hawaii. On a phone, Prince Edward Island, the small northeastern states and nine Japanese prefectures are ringed.
+- **Per-country rebuild**: `npm run admin1 -- JPN` rebuilds only Japan and keeps every other country as built.
+
+### Batch 1
+
+| Country | Played | File (gzipped) | Data issues found and resolved |
+|---|---|---:|---|
+| Brazil | 26 states and 1 federal district | 176 KB (59 KB) | None. The Federal District is an enclave in Goiás. |
+| Mexico | 31 states and 1 capital city | 117 KB (39 KB) | Mexico City named "Distrito Federal" under MX-DIF: now Mexico City, CMX. An unnamed reef row merged into Yucatán. Bare "Mexico" is not accepted, since it would be ambiguous. |
+| India | 28 states and 8 union territories | 168 KB (56 KB) | Four outdated codes; Himachal Pradesh typed as a union territory and Gujarat untyped. Two coastal flags reviewed. Kashmir checked against the country map. |
+| Germany | 16 states | 64 KB (21 KB) | None. English names, with the German names as aliases. Berlin, Hamburg and Bremen (with its exclave Bremerhaven) are city-states. |
+| Japan | 47 prefectures | 91 KB (30 KB) | The Amami Islands are in Okinawa in the source and were moved to Kagoshima. One coastal flag reviewed. |
+| Australia | 6 states and 2 territories | 102 KB (33 KB) | Lord Howe Island shares the New South Wales code (merged); Macquarie Island has no code (merged into Tasmania); Jervis Bay is drawn but not played. |
+| France | 13 regions | 54 KB (14 KB) | The rows are departments: grouped into regions. The overseas departments are excluded (separate land on the map). |
+| Nigeria | 36 states and 1 federal capital territory | 56 KB (19 KB) | "Nassarawa" spelt Nasarawa; the FCT was typed as a state. Two coastal flags reviewed. |
+
+All 10 files together are 1.6 MB, 520 KB gzipped. Each country's file is fetched only when its regions are shown; the largest is still Canada (149 KB gzipped). Canada's and the United States' files are unchanged by batch 1.
+
 ## Challenges (Phase 3 onwards)
 
 - Ids like `can-admin1-find` and `can-admin1-sprint-name`, with `entityType: 'admin1'` and `scopeId: 'country:CAN'`. The version comes from the target ids, as for countries, so records are only compared between identical lists.
@@ -257,7 +324,7 @@ The same `playable: false` mechanism serves any country with a unit that is mapp
 | 3 (built) | Gameplay: Find the Region and Name the Region on the shared engine; full and Sprint challenges; results | Canada playable end to end; country modes and records unchanged |
 | 4 (built) | Explore integration (the real entry point, return to Explore with the country selected) and Progress records per country, mode and challenge | Countries without data show a quiet "not available yet" state |
 | 5 (built) | United States (50 states; a documented policy for Washington, DC and the territories, never silently mixed in); onboarding guide for the next country | A new country is data and configuration only |
-| 6 | Worldwide in reviewed batches (Brazil, Mexico, India, Germany, Japan, Australia, France, Nigeria first); coverage manifest | Each batch validated before the next |
+| 6 (batch 1 built) | Worldwide in reviewed batches (Brazil, Mexico, India, Germany, Japan, Australia, France, Nigeria first); coverage manifest | Each batch validated before the next |
 
 ## Canada acceptance (Phase 2) and results
 
@@ -280,16 +347,17 @@ The same `playable: false` mechanism serves any country with a unit that is mapp
 
 A country is data and configuration: a profile, a build, and its tests. No game, map or Explore code changes. The United States was added this way, apart from two generic additions it was the first to need (units drawn but not played, and core-part framing), which now serve every country.
 
-1. **Check the source.** List the country's Natural Earth rows (`adm0_a3`) in `data-raw/…ne_10m_admin_1_states_provinces.geojson`: their `iso_3166_2`, `name`, `type_en`. Count them against an official source for the first-level divisions. Look for rows under other `adm0_a3` codes that belong to the country (see [Disputed and inconsistent areas](#disputed-and-inconsistent-areas)), and for rows below the first level (then use `groupBy`).
+1. **Check the source.** Start from the country's row in [subdivision-coverage.md](subdivision-coverage.md) (`npm run admin1:audit`), then List the country's Natural Earth rows (`adm0_a3`) in `data-raw/…ne_10m_admin_1_states_provinces.geojson`: their `iso_3166_2`, `name`, `type_en`. Count them against an official source for the first-level divisions. Look for rows under other `adm0_a3` codes that belong to the country (see [Disputed and inconsistent areas](#disputed-and-inconsistent-areas)), and for rows below the first level (then use `groupBy`).
 2. **Write the profile** in `src/data/admin1Profiles.ts`:
    - `sources`, `key` (`iso_3166_2` when clean and unique), and `groupBy` if needed.
    - `terms`: the country's own words, singular and plural, with each kind ("province or territory"; "state" and "federal district").
    - `units`: every row, with code (the ISO 3166-2 suffix), English name, kind, reviewed `aliases` (official names in other languages, well-established short forms; never historical names or bare abbreviations), and `abbrev`.
+   - `mergeInto` for rows that are part of another unit, and `moveParts` for whole islands filed under the wrong unit, each with a reason.
    - `exclude`: rows left out entirely, each with a reason. For a unit that is drawn but not one of the set played, use `playable: false` with a `note` instead, so its land is never merged into a neighbour.
    - `expect`: the playable count of each kind, from the official source.
    - `notes`: any policy decision (what is not played, and why).
    - `enabled: false` until reviewed.
-3. **Build:** `npm run admin1`. It stops on any profile error (a row not reviewed, a duplicate code or name, a missing note, a wrong count) and prints flags for any disagreement with the country map larger than 1 km² and 0.5% of a unit. Read every flag; resolve it in the profile or record it in this document. Never change `countries.topo.json` to make a flag go away.
+3. **Build:** `npm run admin1 -- <ID>` (only that country; `npm run admin1` rebuilds them all). It stops on any profile error (a row not reviewed, a duplicate code or name, a missing note, a wrong count) and prints flags for any disagreement with the country map larger than 1 km² and 0.5% of a unit. Read every flag; resolve it in the profile, or record what you found in the profile's `reviewed`. Never change `countries.topo.json` to make a flag go away.
 4. **Test:** `npm test`. `src/data/admin1Countries.test.ts` runs on every country in the index without changes: ids, counts, the index's fingerprint, names that match exactly one unit, coverage of the country map without holes or overlaps, every label point, both sides of every internal border, colours, framing, and the file size limit (512 KB). Then add a block of country checks there, as for the United States: the exact list of codes, places that must land in the right unit (islands, exclaves, remote parts and cities near borders), points either side of straight borders, any `playable: false` unit, and typed names.
 5. **Check in the browser** on desktop and on a phone: open the country in Explore, show its regions, play Find and Name the Region (a Sprint when it has 10 or more), check the opening view shows every unit and that tiny ones can be chosen, and that Progress → Regions lists it.
 6. **Review and enable:** names, codes, policy notes and flags reviewed, then `enabled: true` and rebuild. A disabled country is visible in development builds only.

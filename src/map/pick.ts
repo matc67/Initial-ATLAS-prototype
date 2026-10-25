@@ -62,6 +62,10 @@ export const markerActive = (zoom: number) => zoom < 6.5;
 //   meant for it: it is reported as too close to call, and the map zooms in instead of counting a guess.
 // Both depend only on the geometry on screen, never on the answer, so neither gives anything away.
 export const TINY_UNIT_PX = 10;
+// The zoom below which a unit `extentKm` across, at latitude `lat`, is under TINY_UNIT_PX on screen (web-map scale: 512 px
+// around the equator at zoom 0). Below it the unit carries a ring marker, like a tiny country, so it is never a speck.
+export const ringUntilZoom = (extentKm: number, lat: number) =>
+  Math.log2((TINY_UNIT_PX * 40075 * Math.cos((lat * Math.PI) / 180)) / (Math.max(extentKm, 0.01) * 512));
 export type SubPickInput = {
   direct: string | null;                        // the unit whose land is under the pointer
   near: { id: string; sizePx: number }[];       // units within reach, with their size on screen
