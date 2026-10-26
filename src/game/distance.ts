@@ -113,10 +113,13 @@ export class CountryDistances {
   private shapes = new Map<string, Shape>();
   private cache = new Map<string, number>();
   private geometry: Map<string, GeoJSON.Geometry>;
+  // The ids with at least one vertex, worked out once: `has` is asked for every country on every render.
+  private withShape: Set<string>;
   constructor(features: GeoJSON.Feature[]) {
     this.geometry = new Map(features.filter(f => f.geometry).map(f => [String(f.properties?.id), f.geometry]));
+    this.withShape = new Set([...this.geometry].filter(([, g]) => verticesOf(g).length > 0).map(([id]) => id));
   }
-  has(id: string) { return verticesOf(this.geometry.get(id)).length > 0; }
+  has(id: string) { return this.withShape.has(id); }
   // Prepares a shape ahead of time (e.g. the mystery's, at the start), so the first guess against it is instant.
   warm(id: string) { this.shape(id); }
   private shape(id: string) {

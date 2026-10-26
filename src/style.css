@@ -1,5 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
-
+/* Fonts (DM Sans, Space Grotesk) are linked from index.html, so they load in parallel with this file. */
 /* Design tokens. Map colours live in GlobeView.ts COLORS and match these. */
 :root {
   --bg: #030a18;
@@ -159,7 +158,10 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 .city-marker.capital i { width: 8px; height: 8px; background: var(--gold); }
 
 /* Help popover, next to the rail */
-.help { position: absolute; left: 104px; top: 50%; transform: translateY(-50%); width: 300px; }
+.help { position: absolute; left: 104px; top: 50%; transform: translateY(-50%); width: 320px; max-height: calc(100vh - 40px); overflow-y: auto; z-index: 5; }
+.how { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; color: var(--ink-2); line-height: 1.4; }
+.how b { display: inline-block; min-width: 62px; color: var(--ink); font-weight: 600; }
+.help-sub { font-size: 13px; padding-top: 4px; border-top: 1px solid var(--panel-line); }
 .key { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; color: var(--ink-2); }
 .key li { display: flex; align-items: center; gap: 10px; }
 .k { flex: none; width: 16px; height: 12px; border-radius: 3px; }
@@ -311,7 +313,15 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 .zoom button:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
 .credits { position: absolute; right: 20px; bottom: 10px; font-size: 10px; color: var(--ink-3); }
 .credits a { color: var(--ink-2); }
-.error { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 16px 20px; border-radius: 12px; background: #4a1d28; border: 1px solid #a04454; max-width: 360px; text-align: center; }
+.error { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 10; display: grid; gap: 12px; padding: 16px 20px; border-radius: 12px; background: #4a1d28; border: 1px solid #a04454; width: min(360px, calc(100vw - 32px)); text-align: center; font-size: 14px; line-height: 1.45; }
+.error-actions { display: flex; justify-content: center; gap: 8px; }
+/* While the countries load: a quiet label where the globe will be. */
+.globe-loading { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); pointer-events: none; animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: 0.45; } }
+/* One focus ring for every control reached by keyboard. */
+button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid #7fb0fb; outline-offset: 2px; }
+.answer-bar input:focus-visible { outline: none; }
+.link.center { align-self: center; font-size: 12.5px; }
 
 /* Challenge picker: Sprint first and most prominent, Full Challenge beside it. */
 .challenges { display: grid; gap: 8px; }
@@ -328,6 +338,17 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 .challenge-body span { font-size: 12.5px; color: var(--ink-2); }
 .challenge-body em { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .challenge.sprint .challenge-body em { color: #ffe19a; }
+.challenge.regions .challenge-icon { color: #93c5fd; background: rgba(59, 130, 246, 0.14); }
+.eyebrow.more { padding-top: 6px; color: var(--ink-3); }
+/* Play panel: a first-visit line, and the country set as a small toggle at the foot. */
+.intro { font-size: 13.5px; line-height: 1.5; color: var(--ink); padding: 10px 12px; border-radius: 12px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(110, 170, 255, 0.3); }
+.set-row { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--panel-line); font-size: 12px; color: var(--ink-3); }
+.set-row .toggle { flex: none; width: 190px; margin-left: auto; }
+/* Explore: the countries with regions, as one-tap chips. */
+.region-picks { display: grid; gap: 8px; }
+.region-picks > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 20px; border: 1px solid var(--panel-line-strong); background: rgba(255, 255, 255, 0.03); color: var(--ink); font-size: 12.5px; }
+.chip:hover { border-color: rgba(130, 170, 230, 0.6); background: rgba(255, 255, 255, 0.07); }
 .hud-area svg { width: 12px; height: 12px; margin-right: 3px; vertical-align: -1px; color: var(--gold); }
 
 /* Sprint results. */
@@ -448,6 +469,10 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
 .challenge.mystery .challenge-icon { color: #ff9aa4; background: rgba(255, 120, 135, 0.12); }
 .mystery-progress { display: grid; gap: 10px; }
 .with-flag { display: inline-flex; align-items: center; gap: 7px; }
+@media (max-width: 1100px) and (min-width: 761px) {
+  /* The HUD needs the top centre; the wordmark keeps only its globe. */
+  .in-round .brand span, .in-mystery .brand span { display: none; }
+}
 @media (max-width: 1180px) and (min-width: 761px) {
   .mystery-hud { left: calc(50% - 170px); width: min(480px, calc(100vw - 480px)); }
 }
@@ -515,6 +540,12 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
   .brand { font-size: 17px; height: auto; }
   .areas { margin: 0; align-items: stretch; }
   .subtabs { align-self: center; }
+  /* All six area tabs fit a 360px phone, so none hides off the edge. */
+  .tabs { justify-content: space-between; }
+  .tabs button { padding: 7px 8px; font-size: 12.5px; }
+  .help { max-height: calc(100vh - 200px); }
+  .set-row .toggle { width: 170px; }
+  .intro { font-size: 12.5px; padding: 8px 10px; }
   .rail { top: auto; bottom: 10px; left: 12px; right: 12px; transform: none; flex-direction: row; justify-content: space-around; }
   .rail button { width: auto; flex: 1; }
   .rail-sep { width: 1px; height: auto; margin: 6px 0; }

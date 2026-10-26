@@ -181,6 +181,7 @@ export class GlobeView {
   private ready: Promise<void>;
   private flashFrame = 0;
   private fadeFrame = 0;
+  private hoverFrame = 0;
   private act = new Map<string, number>();
   private playable: string[] = [];
   private loaded = false;
@@ -320,15 +321,22 @@ export class GlobeView {
       const { id, land, ambiguous } = this.pickAt(e.point);
       this.events.onPick(id, at, land, ambiguous);
     });
-    map.on('mousemove', e => {
-      const sub = this.subAt(e.point);
+    // Hover picks at most once a frame: a mouse can report moves faster than the screen redraws, and each pick queries
+    // the rendered features.
+    let hoverAt: maplibregl.Point | null = null;
+    const hoverPick = () => {
+      this.hoverFrame = 0;
+      const point = hoverAt;
+      if (!point) return;
+      const sub = this.subAt(point);
       this.setSubHover(sub);
       if (sub) { map.getCanvas().style.cursor = 'pointer'; this.setHover(null); return; }
-      const { id } = this.pickAt(e.point);
+      const { id } = this.pickAt(point);
       map.getCanvas().style.cursor = id ? 'pointer' : '';
       this.setHover(id);
-    });
-    map.on('mouseout', () => { this.setHover(null); this.setSubHover(null); });
+    };
+    map.on('mousemove', e => { hoverAt = e.point; this.hoverFrame ||= requestAnimationFrame(hoverPick); });
+    map.on('mouseout', () => { hoverAt = null; cancelAnimationFrame(this.hoverFrame); this.hoverFrame = 0; this.setHover(null); this.setSubHover(null); });
     this.playable = countries.features.filter(f => f.properties?.playable === 1).map(f => String(f.properties!.id));
     this.rings = markers.features.map(f => ({ id: String(f.properties?.id), at: (f.geometry as GeoJSON.Point).coordinates as LngLat }));
     this.small = new Set([...this.rings.map(r => r.id), ...halos.features.map(f => String(f.properties?.id))]);
@@ -608,10 +616,14 @@ export class GlobeView {
   }
 
   // Every flight carries the current padding: a separate padding animation would cancel a flight already under way.
+  // The end of the flight is watched only once it has started: flyTo first stops a flight already under way, and that
+  // stop fires `moveend` at once, which would otherwise mark this flight finished before it began (and a padding change
+  // during it would then cancel it instead of carrying it on).
   fly(camera: Camera, duration = 1100) {
     this.flightTarget = camera;
-    this.map.once('moveend', () => { if (this.flightTarget === camera) this.flightTarget = null; });
     this.map.flyTo({ center: camera.center, zoom: camera.zoom, padding: this.padding, duration, essential: true });
+    if (!this.map.isMoving()) { this.flightTarget = null; return; }   // already there: nothing to carry on
+    this.map.once('moveend', () => { if (this.flightTarget === camera) this.flightTarget = null; });
   }
 
   jump(camera: Camera) { this.map.jumpTo(camera); }
@@ -629,7 +641,7 @@ export class GlobeView {
   zoomBy(delta: number) { this.map.easeTo({ zoom: this.map.getZoom() + delta, duration: 300 }); }
 
   destroy() {
-    cancelAnimationFrame(this.flashFrame); cancelAnimationFrame(this.fadeFrame); this.setCities([]);
+    cancelAnimationFrame(this.flashFrame); cancelAnimationFrame(this.fadeFrame); cancelAnimationFrame(this.hoverFrame); this.setCities([]);
     for (const p of this.pulses) { clearTimeout(p.timer); p.marker.remove(); }
     this.map.remove();
   }

@@ -296,3 +296,14 @@ test('nothing in the game state names the mystery until it is solved', () => {
   assert.ok(searchCountries('bhutan', ROSTER).every(s => Object.keys(s).sort().join() === 'alias,entry,rank' || Object.keys(s).sort().join() === 'entry,rank'));
   assert.equal(byName('Bhutan').id, 'BTN');
 });
+
+// `has` is asked for every country on every render (the mystery pool), so it answers from a set made once, never by
+// walking a shape's vertices again. Same answers as before: every playable country has a shape, unknown ids none.
+test('distances know which countries have a shape, without re-reading the geometry', () => {
+  const fresh = new CountryDistances(shapes);
+  for (const r of ROSTER) assert.ok(fresh.has(r.id), `${r.id} has a shape`);
+  assert.equal(fresh.has('XXX'), false);
+  const t = performance.now();
+  for (let i = 0; i < 200; i++) for (const r of ROSTER) fresh.has(r.id);
+  assert.ok(performance.now() - t < 50, '40,000 lookups are instant');
+});

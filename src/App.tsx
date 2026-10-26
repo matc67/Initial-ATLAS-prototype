@@ -171,7 +171,12 @@ export default function App() {
   const inMystery = view === 'play' && !!mystery;
   const mysteryPlaying = inMystery && mystery!.m.phase === 'playing';
   // Every country of the set with a shape: the possible answers, all of them guessable.
-  const mysteryPool = (set: CountrySet) => [...countries.values()].filter(c => inSet(c, set) && !!distRef.current?.has(c.id)).map(c => c.id);
+  // Worked out once per set when the map loads: Progress and the Play panel ask for it on every render.
+  const mysteryPools = useMemo(() => {
+    const pool = (set: CountrySet) => [...countries.values()].filter(c => inSet(c, set) && !!distRef.current?.has(c.id)).map(c => c.id);
+    return { '200': pool('200'), '195': pool('195') };
+  }, [countries]);
+  const mysteryPool = (set: CountrySet) => mysteryPools[set];
 
   // ---- Regions (first-level subdivisions) -------------------------------------------------------------------------------
   // A country's regions in Explore: its panel says what it has and starts Find or Name the Region; its regions view shows
@@ -184,7 +189,7 @@ export default function App() {
   const subOpen = view === 'explore' && !!subView;
   // The subdivisions on the map: a subdivision round's, or the Explore view's. Never both, never another country's.
   const shownSubs = view === 'play' && game?.sub ? game.sub : view === 'explore' && subView ? subView.set : null;
-  const needIndex = (view === 'explore' && !!selected) || view === 'progress';
+  const needIndex = view === 'explore' || view === 'progress';
   useEffect(() => {
     if (needIndex && !subIndex) loadSubdivisionIndex().then(idx => { setSubIndex(idx); setSubIndexFailed(false); }, () => setSubIndexFailed(true));
   }, [needIndex]);
@@ -195,17 +200,24 @@ export default function App() {
     subPick: (_id: string | null, _at: LngLat, _ambiguous?: string[]) => {}, subHover: (_id: string | null) => {},
   });
   useEffect(() => {
-    const globe = new GlobeView(mapDiv.current!, {
-      onPick: (id, at, land, ambiguous) => handlers.current.pick(id, at, land, ambiguous), onHover: id => handlers.current.hover(id),
-      onSubPick: (id, at, ambiguous) => handlers.current.subPick(id, at, ambiguous), onSubHover: id => handlers.current.subHover(id),
-    }, { glow: glowDiv.current!, shade: shadeDiv.current! });
+    // Without WebGL (switched off, or a very old device) MapLibre cannot start: say so rather than show a blank page.
+    let globe: GlobeView;
+    try {
+      globe = new GlobeView(mapDiv.current!, {
+        onPick: (id, at, land, ambiguous) => handlers.current.pick(id, at, land, ambiguous), onHover: id => handlers.current.hover(id),
+        onSubPick: (id, at, ambiguous) => handlers.current.subPick(id, at, ambiguous), onSubHover: id => handlers.current.subHover(id),
+      }, { glow: glowDiv.current!, shade: shadeDiv.current! });
+    } catch {
+      setError('ATLAS needs WebGL to draw the globe. Try another browser, or turn on hardware acceleration in your browser settings.');
+      return;
+    }
     globeRef.current = globe;
     // Development builds expose the map so visual checks can move the camera; production builds strip this.
     if (import.meta.env.DEV) (window as unknown as { atlasMap: unknown }).atlasMap = globe.map;
     globe.jump(fit(AREA_CAMERA.World));
     globe.load()
       .then(({ countries, tiny }) => { distRef.current = new CountryDistances(countries.features); setCountries(indexCountries(countries)); setTiny(tiny); })
-      .catch(e => setError(e instanceof Error ? e.message : 'The map could not load.'));
+      .catch(() => setError('The map could not load. Check your connection and try again.'));
     return () => { globe.destroy(); globeRef.current = null; };
   }, []);
 
@@ -319,7 +331,7 @@ export default function App() {
       commit(g);
       setGuess('');
       if (m === 'name') lookAtTarget(places.get(queue[0])!); else frameScope(g);
-    }, e => setError(e instanceof Error ? e.message : 'Subdivisions could not load.'));
+    }, () => setError('These regions could not load. Check your connection and try again.'));
   }
 
   // Leaving a round: a subdivision round goes back to its country in Explore, still selected, with its subdivisions shown.
@@ -397,7 +409,7 @@ export default function App() {
     if (!next.regions) { if (subView) { setSubView(null); setSubHover(null); } return; }
     const r = next.regions;
     if (subView?.set.countryId === r.country) { setSubView({ ...subView, selected: r.unit }); return; }
-    loadSubdivisions(r.country).then(set => setSubView({ set, selected: r.unit }), e => setError(e instanceof Error ? e.message : 'Regions could not load.'));
+    loadSubdivisions(r.country).then(set => setSubView({ set, selected: r.unit }), () => setError('These regions could not load. Check your connection and try again.'));
   }
   function openSubdivisions(countryId: string) {
     setView('explore');
@@ -578,6 +590,8 @@ export default function App() {
       return;
     }
     globeRef.current?.flash(id, FLASH_GOOD, 900);
+    // The answer is no secret any more: bring it into view, however it was found (a click far out, or a typed name).
+    globeRef.current?.fly(fit({ center: c.center, zoom: Math.max(globeRef.current.map.getZoom(), tiny.has(id) ? 4.6 : 2.8) }), 900);
     const result = recordMystery(g, toMysteryRun(m, elapsed(m.clock, now)));
     // One sound: the victory flourish for a new personal best, otherwise the solved chime.
     audio.play({ kind: isMysteryRecord(result.bests) ? 'record' : 'solved' });
@@ -716,7 +730,13 @@ export default function App() {
   const guessedRight = inRound && !!hoverId && !!round?.answers.some(a => a.id === hoverId && !a.hint);
   const hoverCountry = hoverId && (!inRound || guessedRight) ? countries.get(hoverId) : undefined;
   const selectedCountry = selected ? countries.get(selected) : undefined;
+  // The countries whose regions can be shown and played, by name, for the Explore panel.
+  const regionCountries = useMemo(() => !subIndex ? [] : Object.keys(subIndex.countries)
+    .filter(id => hasRegions(subIndex, id, import.meta.env.DEV)).flatMap(id => countries.get(id) ?? [])
+    .sort((a, b) => a.name.localeCompare(b.name)), [subIndex, countries]);
   const loading = !countries.size && !error;
+  // A first visit (nothing played, in any mode): the Play panel opens with one line saying what ATLAS is.
+  const firstVisit = !Object.keys(perf).length && !Object.keys(subPerf).length && !Object.keys(mysteryStore).length;
   const legend = useMemo(() => {
     const n = { first: 0, retry: 0, hinted: 0 };
     for (const a of runResults.values()) n[runStatus(a)]++;
@@ -742,7 +762,7 @@ export default function App() {
     const t = trendsOf(m).at(-1);
     return { name: nameOf(g.id), km: g.km, trend: m.guesses.length === 1 ? '' : t === 'closest' ? 'closest yet' : 'not closer' };
   }, [mystery, countries]);
-  const mysteryKeyFor = useMemo(() => (set: CountrySet) => mysteryKey(mysteryChallenge(set, mysteryPool(set))), [countries]);
+  const mysteryKeyFor = useMemo(() => (set: CountrySet) => mysteryKey(mysteryChallenge(set, mysteryPools[set])), [mysteryPools]);
   const mysteryRecord = countries.size ? mysteryStore[mysteryKeyFor(countrySet)] : undefined;
   const searchBar = mysteryPlaying && !mystery!.held;
   const mHistory = mystery && {
@@ -763,7 +783,7 @@ export default function App() {
     <div className="globe-shade" ref={shadeDiv} />
 
     <header className="topbar">
-      <div className="brand"><Icon name="globe" /> ATLAS</div>
+      <div className="brand"><Icon name="globe" /><span>ATLAS</span></div>
       {!inRound && !inMystery && <nav className="areas" aria-label="Area">
         <div className="tabs">{TABS.map(a => <button key={a} className={a === tabOf(area) ? 'active' : ''} onClick={() => chooseArea(a)}>{a}</button>)}</div>
         {tabOf(area) === 'Americas' && <div className="subtabs">{AMERICAS.map(o => <button key={o.area} className={o.area === area ? 'active' : ''} onClick={() => chooseArea(o.area)}>{o.label}</button>)}</div>}
@@ -778,7 +798,16 @@ export default function App() {
     </nav>
 
     {help && <aside className="card help" aria-label="Help">
-      <div className="card-head"><strong>How the map works</strong><button className="close" aria-label="Close help" onClick={() => setHelp(false)}>×</button></div>
+      <div className="card-head"><strong>How to play</strong><button className="close" aria-label="Close help" onClick={() => setHelp(false)}>×</button></div>
+      <ul className="how">
+        <li><b>Find it</b> We name a country; click it on the globe.</li>
+        <li><b>Name it</b> A country lights up in gold; type its name.</li>
+        <li><b>Flags</b> We show a flag; click its country.</li>
+        <li><b>Mystery</b> Guess a hidden country; each guess shows how far away it is.</li>
+        <li><b>Regions</b> States and provinces: open a country in Explore.</li>
+      </ul>
+      <p className="fine">A wrong click never shows the answer. Use Show me if you are stuck (0 points). Drag to turn the globe, scroll or pinch to zoom.</p>
+      <strong className="help-sub">On the map</strong>
       <ul className="key">
         <li><span className="k ring" />Very small countries have a ring you can click.</li>
         <li><span className="k land" />Grey land is not one of the 200 countries.</li>
@@ -826,28 +855,34 @@ export default function App() {
 
     {!inRound && !inMystery && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : view === 'explore' && subView ? 'card panel sub' : 'card panel'}>
       {view === 'play' && !game && <>
+        {firstVisit && <p className="intro">A geography game on a 3D globe. Pick a way to play, choose an area at the top, and start.</p>}
         <div className="eyebrow">{SET_LABEL[countrySet]}</div>
         <h1>{areaTitle(area)}</h1>
-        <div className="segmented two" role="radiogroup" aria-label="Countries">
-          <button role="radio" aria-checked={countrySet === '200'} className={countrySet === '200' ? 'on' : ''} onClick={() => setCountrySet('200')}>200 Countries</button>
-          <button role="radio" aria-checked={countrySet === '195'} className={countrySet === '195' ? 'on' : ''} onClick={() => setCountrySet('195')}>Classic 195</button>
-        </div>
         <div className="segmented" role="radiogroup" aria-label="Game mode">
           <button role="radio" aria-checked={mode === 'find'} className={mode === 'find' ? 'on' : ''} onClick={() => setMode('find')}>Find it</button>
           <button role="radio" aria-checked={mode === 'name'} className={mode === 'name' ? 'on' : ''} onClick={() => setMode('name')}>Name it</button>
           <button role="radio" aria-checked={mode === 'flag'} className={mode === 'flag' ? 'on' : ''} onClick={() => setMode('flag')}>Flags</button>
         </div>
-        <p className="muted">{MODE_HINT[mode]} Get it first try for {ATTEMPT_POINTS[0]} points, and 3, 5 or 10 in a row for a streak bonus. Every mistake costs points and breaks your streak.</p>
+        <p className="muted">{MODE_HINT[mode]} {ATTEMPT_POINTS[0]} points first try, plus a bonus for 3, 5 or 10 in a row.</p>
         <ChallengePicker area={areaShort(area)} loading={loading} poolSize={playIds.length}
           sprintBest={sprintRecord} fullBest={record} onSprint={() => startRound({ kind: 'sprint' })} onFull={() => startRound()}
-          mysteryBest={mysteryRecord} mysterySize={mEntries.length} onMystery={() => startMystery()} />
+          mysteryBest={mysteryRecord} mysterySize={mEntries.length} onMystery={() => startMystery()}
+          onRegions={() => { setView('explore'); setSelected(null); setSelectedLand(null); }} />
+        <div className="set-row">
+          <span>Countries</span>
+          <div className="toggle" role="radiogroup" aria-label="Countries">
+            <button role="radio" aria-checked={countrySet === '200'} className={countrySet === '200' ? 'on' : ''} onClick={() => setCountrySet('200')}>All 200</button>
+            <button role="radio" aria-checked={countrySet === '195'} className={countrySet === '195' ? 'on' : ''} onClick={() => setCountrySet('195')}>Classic 195</button>
+          </div>
+        </div>
       </>}
 
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'sprint' && <SprintResults
         area={scopeName(game)} modeLabel={modeLabel(game)} stats={stats} answers={round.answers}
         before={game.before} bests={game.bests} countries={game.places} nameOf={nameOf}
         onPlayAgain={playAgain} onChange={leaveRound}
-        heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} changeLabel={game.sub ? `Back to ${backName(game)}` : undefined} />}
+        heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} changeLabel={game.sub ? `Back to ${backName(game)}` : undefined}
+        onProgress={game.sub ? undefined : () => { setRunView('latest'); setView('progress'); }} />}
 
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'full' && <>
         <div className="eyebrow">{scopeName(game)} Challenge Complete · {stats.total} {unitsWord(game).replace(/^./, ch => ch.toUpperCase())} · {modeLabel(game)}</div>
@@ -887,7 +922,13 @@ export default function App() {
         <div className="card-head"><h1>{selectedLand.name}</h1><button className="close" aria-label="Close" onClick={() => setSelectedLand(null)}>×</button></div>
         <dl className="facts"><div><dt>Status</dt><dd>{landNote(selectedLand).status}</dd></div></dl>
         <p className="muted">{landNote(selectedLand).why}</p>
-      </> : <p className="muted">Explore 200 countries. Click any country to learn about it.</p>)}
+      </> : <>
+        <p className="muted">Explore {ROSTER.length} countries. Click any country to learn about it.</p>
+        {regionCountries.length > 0 && <div className="region-picks">
+          <span className="eyebrow">Regions to explore and play</span>
+          <div>{regionCountries.map(c => <button key={c.id} className="chip" onClick={() => openSubdivisions(c.id)}><Flag iso2={c.iso2} />{c.name}</button>)}</div>
+        </div>}
+      </>)}
 
       {view === 'progress' && <ProgressPanel
         store={perf} area={area} set={countrySet} mode={mode} kind={progressKind}
@@ -903,7 +944,14 @@ export default function App() {
     {shownSubs && subHover && (!inRound || round?.answers.some(a => a.id === subHover && !a.hint)) ? <div className="hover-name">{shownSubs.byId.get(subHover)?.properties.name}<small>{shownSubs.byId.get(subHover)?.properties.kind}</small></div>
       : hoverCountry && <div className="hover-name"><Flag iso2={hoverCountry.iso2} />{hoverCountry.name}</div>}
     <div className="zoom" data-silent><button aria-label="Zoom in" onClick={() => globeRef.current?.zoomBy(1)}>+</button><button aria-label="Zoom out" onClick={() => globeRef.current?.zoomBy(-1)}>−</button></div>
-    {error && <div className="error">{error}</div>}
+    {loading && <div className="globe-loading" role="status">Loading the globe…</div>}
+    {error && <div className="error" role="alert">
+      <p>{error}</p>
+      <div className="error-actions">
+        <button className="btn primary small" onClick={() => location.reload()}>Try again</button>
+        {countries.size > 0 && <button className="btn small" onClick={() => setError('')}>Close</button>}
+      </div>
+    </div>}
     <footer className="credits">Borders and relief: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> · Flags: flag-icons</footer>
   </div>;
 }
@@ -935,7 +983,7 @@ function CountryPanel({ country, places, placesError, loaded, challengeSize, onP
     <div className="eyebrow">Challenges</div>
     <button className="btn" onClick={onPlay}>Play {country.continent} · {challengeSize} countries</button>
     {regions}
-    <p className="fine">Coming later: {country.name}’s cities as challenges of their own. Borders, capitals and cities: Natural Earth.</p>
+    <p className="fine">Borders, capitals and cities: Natural Earth.</p>
   </>;
 }
 

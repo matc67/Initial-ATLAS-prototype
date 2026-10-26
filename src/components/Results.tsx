@@ -47,10 +47,11 @@ type Props = {
   onPlayAgain: () => void; onChange: () => void;
   heading?: string;          // what was played, for the review list ("Countries" by default)
   changeLabel?: string;      // "Change challenge", or "Back to Canada" for a subdivision Sprint
+  onProgress?: () => void;   // shows the run on the Progress globe (country Sprints)
 };
 
 // The arcade results: the score out of 1,400 (1,000 base + 400 for a perfect streak), how it compares with the player's bests, and an instant replay.
-export function SprintResults({ area, modeLabel, stats, answers, before, bests, countries, nameOf, onPlayAgain, onChange, heading, changeLabel = 'Change challenge' }: Props) {
+export function SprintResults({ area, modeLabel, stats, answers, before, bests, countries, nameOf, onPlayAgain, onChange, heading, changeLabel = 'Change challenge', onProgress }: Props) {
   const rows = compareWithBests({ score: stats.score, accuracy: stats.accuracy ?? 0, ms: stats.elapsedMs, streak: stats.longestStreak, mistakes: stats.totalMistakes }, before);
   const [score, ...tiles] = rows;
   const shown = useTween(stats.score, 650, 0);
@@ -78,6 +79,7 @@ export function SprintResults({ area, modeLabel, stats, answers, before, bests, 
     <ReviewList answers={answers} countries={countries} nameOf={nameOf} heading={heading} />
     <button ref={again} className="btn primary big" onClick={onPlayAgain}>Play again <kbd>Enter</kbd></button>
     <button className="btn" onClick={onChange}>{changeLabel}</button>
+    {onProgress && <button className="link center" onClick={onProgress}>See this run on the globe in Progress</button>}
     <p className="fine">Personal arcade records, kept in this browser. Each Sprint draws a new random ten, so runs differ in difficulty. Streak bonuses: +50 at 3 in a row, +100 at 5, +250 at 10.</p>
   </div>;
 }
