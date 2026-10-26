@@ -1,0 +1,35 @@
+# Netlify: build the static site and serve dist/. No server code, no environment variables.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# ATLAS is one page with no client-side routes (state lives in the page and localStorage), so no SPA redirect is needed,
+# and without one a missing data file is a plain 404 rather than index.html served in its place.
+
+# Built scripts and styles have a content hash in their name: cache them for good.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Map data and flags keep their names between releases: browsers keep them but check for a newer copy.
+[[headers]]
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/flags/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
