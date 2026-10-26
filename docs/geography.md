@@ -21,7 +21,9 @@ How ATLAS stores places today, what is reusable, and how first-level divisions (
 
 Attribution is shown in the app footer (Natural Earth, flag-icons). Natural Earth is public domain; flag-icons is MIT.
 
-**Not available yet:** first-level division boundaries, and a city list beyond capitals and about six major cities per country.
+**Not available yet:** a city list beyond capitals and about six major cities per country. First-level divisions now exist for ten countries (see [subdivisions.md](subdivisions.md)).
+
+Each country's label point (`lx`, `ly`) is always on its own land: where Natural Earth's falls in the sea (Equatorial Guinea, New Zealand, Trinidad and Tobago and a few archipelagos), `npm run data` moves it onto the largest island. The camera, answer pulses and Mystery Country look at it.
 
 ## How the globe draws land
 

@@ -165,9 +165,11 @@ const shapes: Shape[] = [], halos: Shape[] = [], markers: Feature[] = [];
 const fullDetail = new Set<string>();
 for (const [id, f] of byId) {
   const r = roster.get(id);
-  // `color` is Natural Earth's MAPCOLOR7 (1-7, no two neighbours alike); `lx`/`ly` is its label point, used for distances.
+  // `color` is Natural Earth's MAPCOLOR7 (1-7, no two neighbours alike); `lx`/`ly` is its label point, always on its land
+  // (the camera, answer pulses and Mystery look at it), moved onto the largest island where Natural Earth's falls in the sea.
   // `cont` picks the continent colour family; `region` is the UN geoscheme subregion (Natural Earth SUBREGION), shown in Explore.
-  const props = { id, name: r?.name ?? f.properties.NAME_LONG, playable: r ? 1 : 0, color: f.properties.MAPCOLOR7, lx: f.properties.LABEL_X, ly: f.properties.LABEL_Y,
+  const [lx, ly] = ringPoint(f, [f.properties.LABEL_X, f.properties.LABEL_Y]);
+  const props = { id, name: r?.name ?? f.properties.NAME_LONG, playable: r ? 1 : 0, color: f.properties.MAPCOLOR7, lx, ly,
     ...(r ? { cont: r.continent, region: f.properties.SUBREGION } : {}),
     // Non-playable land keeps its sovereign and Natural Earth TYPE, so Explore can say why it is not one of the 195.
     ...(r ? {} : { sovereign: f.properties.SOVEREIGNT, kind: id.endsWith('-OVERSEAS') ? 'Overseas region' : f.properties.TYPE }) };

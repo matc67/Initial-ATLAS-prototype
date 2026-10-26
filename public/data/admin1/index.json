@@ -1,6 +1,6 @@
 {
   "version": "f6c72b890280",
-  "builtAt": "2026-10-25T19:20:59.310Z",
+  "builtAt": "2026-10-26T01:26:48.939Z",
   "source": {
     "name": "Natural Earth Admin 1 States and Provinces 1:10m",
     "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/ca96624a56bd078437bca8184e78163e5039ad19/geojson/ne_10m_admin_1_states_provinces.geojson",
@@ -9,7 +9,7 @@
   },
   "countryData": {
     "file": "countries.topo.json",
-    "sha256": "8bd94558993f9c4cf93afc703387eb1b23fa163eeefca0d94567132c97817fc9"
+    "sha256": "fc66327d8530e43fc0214a60f46e99afc53777cb25c6200f74eb407a8c654427"
   },
   "countries": {
     "CAN": {
