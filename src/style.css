@@ -591,3 +591,128 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
   .mystery-search { bottom: 84px; }
   .history-head .toggle { width: 130px; }
 }
+
+/* ---- City Rush ------------------------------------------------------------------------------------------------------
+   Playing: the HUD and the input sit together at the top, so eyes and fingers never travel, and on a phone the keyboard
+   never covers the input. The discovered list is the side panel (a sheet on phones). Map labels are .rush-label. */
+.rush-top { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 220px)); display: grid; gap: 8px; z-index: 3; }
+.rush-list-open .rush-top { left: calc(50% - 160px); }
+.rush-top .hud, .rush-top .answer-bar { position: relative; top: auto; left: auto; bottom: auto; transform: none; width: auto; animation: rush-in 0.25s ease-out; }
+@keyframes rush-in { from { opacity: 0; transform: translateY(-6px); } }
+.rush-hud .hud-area { display: inline-flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hud-top .spacer { flex: 1; }
+.icon-btn.on { color: var(--ink); }
+.rush-readouts { grid-template-columns: 1fr 1fr 1fr; }
+.readout.time.low { border-color: rgba(255, 107, 107, 0.45); background: rgba(255, 107, 107, 0.08); }
+.readout.time.low strong { color: #ff9c9c; }
+.rush-readouts .readout.score strong { color: var(--gold); }
+.rush-readouts .gain { color: var(--gold); font-size: 12.5px; }
+/* City population coverage: a bar that fills as people are found, with a tick at the personal best. */
+.rush-progress { display: grid; gap: 4px; }
+.rush-progress .bar { position: relative; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.07); overflow: visible; }
+.rush-progress .bar i { position: absolute; inset: 0 auto 0 0; max-width: 100%; border-radius: 3px; background: linear-gradient(90deg, #d99a2b, var(--gold)); box-shadow: 0 0 8px rgba(255, 207, 92, 0.45); }
+.rush-progress .bar .best { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--ink-2); }
+.rush-progress > span { font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rush-progress > span b { color: var(--ink); font-weight: 600; }
+.rush-msg { display: flex; align-items: center; gap: 7px; min-height: 22px; padding-top: 6px; border-top: 1px solid var(--panel-line); font-size: 13px; color: var(--ink-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; animation: rush-msg 0.25s ease-out; }
+.rush-msg b { font-size: 14px; }
+.rush-msg.new { color: var(--ink); }
+.rush-msg.new b { color: var(--good); }
+.rush-msg.duplicate b { color: var(--ink-2); }
+.rush-msg.unknown { color: #ffc2c2; }
+.rush-msg.unknown b { color: #ff8a8a; }
+@keyframes rush-msg { from { opacity: 0.3; } }
+.rush-bar input { font-size: 17px; }
+.btn.danger { border-color: rgba(255, 107, 107, 0.6); color: #ffc2c2; }
+.rush-search { display: grid; gap: 6px; }
+.rush-search input { width: 100%; border: 1px solid var(--panel-line-strong); background: rgba(0, 0, 0, 0.25); border-radius: var(--radius-sm); padding: 10px 12px; outline: none; font-size: 14px; }
+.rush-search input:focus { border-color: rgba(110, 170, 255, 0.7); }
+.rush-search .suggestions { position: static; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(0, 0, 0, 0.2); }
+.rush-best { font-size: 13px; color: var(--ink-2); }
+.rush-best b { color: var(--gold); }
+.rush-found { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.rush-found button { width: 100%; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; border: 0; background: none; padding: 6px 8px; border-radius: 8px; text-align: left; font-size: 13.5px; }
+.rush-found button:hover, .rush-found button:focus-visible { background: rgba(255, 255, 255, 0.06); }
+.rush-found .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rush-found .name small { color: var(--ink-3); }
+.rush-found .meta { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+.rush-found .meta b { font-weight: 600; color: #e9c46a; }
+.btn.small.ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
+.btn.small.ghost:hover { color: var(--ink); border-color: var(--panel-line); }
+.rush-msg.learned { color: var(--ink); }
+.rush-msg.learned b { color: var(--gold); }
+.rush-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); cursor: pointer; user-select: none; }
+.rush-toggle input { accent-color: var(--gold); width: 15px; height: 15px; margin: 0; }
+/* Cities You Missed: five rows, a short lesson. Coral matches the hollow rings on the map. */
+.rush-missed { display: grid; gap: 6px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid rgba(255, 157, 138, 0.28); background: rgba(255, 140, 120, 0.05); }
+.rush-missed .eyebrow { color: #ffb4a6; }
+.rush-missed ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; counter-reset: missed; }
+.rush-missed li { counter-increment: missed; }
+.rush-missed button { width: 100%; display: grid; grid-template-columns: 18px 1fr auto auto; align-items: baseline; gap: 8px; border: 0; background: none; padding: 6px 4px; border-radius: 8px; text-align: left; font-size: 14px; }
+.rush-missed button::before { content: counter(missed); font-size: 11px; font-weight: 700; color: #ff9d8a; }
+.rush-missed button:hover, .rush-missed button:focus-visible { background: rgba(255, 255, 255, 0.06); }
+.rush-missed .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rush-missed .meta { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+.rush-missed b { font-size: 12.5px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.rush-missed .fine { margin: 0; }
+.rush-progress-summary dd.up { color: var(--good); }
+.rush-region-label { pointer-events: none; font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(236, 244, 255, 0.62); text-shadow: 0 1px 2px rgba(3, 10, 24, 0.9), 0 0 6px rgba(3, 10, 24, 0.6); white-space: nowrap; z-index: 0; }
+.rush-label { z-index: 1; }
+.rush-label.missed, .rush-label.pinned.missed { color: #ffb4a6; }
+.rush-list { width: 300px; }
+.rush-score strong { color: var(--gold); }
+.rush-score span { font-size: 17px; color: var(--ink-2); }
+.share-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.share-row .btn { flex: 1; }
+.share-text { width: 100%; resize: none; border: 1px solid var(--panel-line); background: rgba(0, 0, 0, 0.25); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12px; line-height: 1.45; color: var(--ink); }
+.rush-details summary { cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #7fb0fb; }
+.rush-details .rush-found { max-height: 240px; overflow-y: auto; margin-top: 6px; }
+.rush-label { pointer-events: none; font-size: 11px; font-weight: 600; color: rgba(236, 244, 255, 0.9); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 8px rgba(3, 10, 24, 0.85); white-space: nowrap; }
+.rush-label.pinned { color: var(--gold); font-size: 12.5px; font-weight: 700; }
+.hover-name.city svg { width: 15px; height: 15px; color: var(--gold); }
+.in-rush .hover-name { bottom: 30px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rush-top .hud, .rush-top .answer-bar, .rush-msg { animation: none !important; }
+}
+
+@media (max-width: 760px) {
+  .rush-top { top: 50px; width: calc(100vw - 24px); gap: 6px; }
+  .rush-list-open .rush-top { left: 50%; }
+  .rush-top .hud { padding: 8px 10px; }
+  .rush-readouts .readout strong { font-size: 19px; }
+  .rush-list { width: auto; max-height: 40vh; }
+  .rush-playing .zoom { display: none; }
+  /* One row of controls: the mode name gives way to the country, buttons stay compact. */
+  .rush-hud .hud-top { flex-wrap: nowrap; gap: 4px; }
+  .rush-hud .mode-name { display: none; }
+  .rush-hud .hud-top .btn.small { padding: 6px 9px; }
+  .rush-modes { grid-template-columns: 1fr 1fr; }
+  .rush-modes button { padding: 7px 10px; grid-template-columns: 1fr; grid-template-areas: 'label' 'time' 'best'; }
+  .rush-modes button:last-child { grid-column: 1 / -1; }
+  .rush-modes .label em { display: none; }
+  /* A tapped city's name, just above the list or the navigation. */
+  .hover-name.city { display: flex; bottom: 96px; }
+  .rush-list-open .hover-name.city { bottom: calc(40vh + 96px); }
+}
+/* Setup: what there is to find, in one line; then the five ways to play, each with its personal best. */
+.rush-facts { font-size: 13.5px; color: var(--ink-2); margin: 0; }
+.rush-facts b { color: var(--ink); font-weight: 600; }
+.rush-facts span { color: var(--ink-3); }
+.rush-modes { display: grid; gap: 4px; }
+.rush-modes button { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'label time' 'best best'; align-items: baseline; gap: 1px 10px; text-align: left; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--panel-line); background: rgba(255, 255, 255, 0.025); color: var(--ink-2); transition: border-color 0.15s, background 0.15s; }
+.rush-modes button:hover { border-color: var(--panel-line-strong); color: var(--ink); }
+.rush-modes button.on { border-color: rgba(110, 170, 255, 0.6); background: rgba(59, 130, 246, 0.16); color: var(--ink); }
+.rush-modes .label { grid-area: label; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+.rush-modes .label em { font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+.rush-modes .time { grid-area: time; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.rush-modes button.on .time { color: var(--ink-2); }
+.rush-modes .best { grid-area: best; font-size: 11.5px; color: var(--ink-3); }
+.rush-modes .best:empty { display: none; }
+/* Results: play again at another length, one tap. */
+.rush-lengths { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-3); }
+.rush-lengths .chip { border: 1px solid var(--panel-line); background: none; color: var(--ink-2); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; }
+.rush-lengths .chip:hover { border-color: var(--panel-line-strong); color: var(--ink); }
+.challenge.city-rush .challenge-icon { color: #86efac; background: rgba(74, 222, 128, 0.12); }
+/* The milestone toast hangs below the input, never over it. */
+.rush-top > .celebrate { top: calc(100% + 10px); }

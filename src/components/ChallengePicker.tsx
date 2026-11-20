@@ -15,6 +15,7 @@ type Props = {
   mysteryBest?: MysteryRecord;  // Mystery Country plays the whole world in the chosen set, whatever the area
   mysterySize: number;
   onMystery: () => void;
+  onCityRush: () => void;       // City Rush: any country with enough cities, chosen on its own setup screen
   onRegions: () => void;        // to Explore, where the countries with regions are listed
 };
 
@@ -25,7 +26,7 @@ const mysteryLine = (r?: MysteryRecord) => r && r.solved > 0 && `Best ${r.fewest
 // The ways to play. The area and mode above decide the first two: a 10-country Sprint (the arcade mode, shown first) and
 // the area's Full Challenge. Mystery Country and Regions follow the area and mode not at all, so they sit apart, under
 // their own heading. Each card starts its run straight away (Regions opens the list of countries that have them).
-export default function ChallengePicker({ area, loading, poolSize, sprintBest, fullBest, onSprint, onFull, mysteryBest, mysterySize, onMystery, onRegions }: Props) {
+export default function ChallengePicker({ area, loading, poolSize, sprintBest, fullBest, onSprint, onFull, mysteryBest, mysterySize, onMystery, onCityRush, onRegions }: Props) {
   const sprintOk = poolSize >= SPRINT_SIZE;
   return <div className="challenges">
     <button className="challenge sprint" onClick={onSprint} disabled={loading || !sprintOk}>
@@ -51,6 +52,14 @@ export default function ChallengePicker({ area, loading, poolSize, sprintBest, f
         <strong>Mystery Country</strong>
         <span>Find the hidden country. Every guess tells you how close you are.</span>
         <em>{loading ? 'Loading the globe…' : mysteryLine(mysteryBest) || `Anywhere in the world · ${mysterySize} countries`}</em>
+      </span>
+    </button>
+    <button className="challenge city-rush" onClick={onCityRush} disabled={loading}>
+      <span className="challenge-icon"><Icon name="city" /></span>
+      <span className="challenge-body">
+        <strong>City Rush</strong>
+        <span>Pick a country and name its cities. Each one lands on the globe.</span>
+        <em>{loading ? 'Loading the globe…' : '3 to 20 minutes, or explore with no clock'}</em>
       </span>
     </button>
     <button className="challenge regions" onClick={onRegions} disabled={loading}>

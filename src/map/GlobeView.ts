@@ -151,6 +151,11 @@ const LAND_EDGE = ['interpolate', ['linear'], ['zoom'], 1, 1.1, 4, 0.9, 7, 0.6] 
 const FADE_MS = 450;
 // How long an answer pulse stays on the map; its animation (style.css .answer-pulse) ends a little before.
 const PULSE_MS = 800;
+// City Rush labels on screen at once: enough to read a country's map, few enough never to crowd it.
+const RUSH_LABELS = 40, RUSH_LABELS_SMALL = 18;
+// A region is named in City Rush once it is this many pixels across on screen.
+const REGION_LABEL_PX = 90;
+const reduceMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const act = ['coalesce', ['feature-state', 'act'], 0] as ExpressionSpecification;
 const RELIEF_BOUNDS: [[number, number], [number, number], [number, number], [number, number]] = [[-180, 85.0511], [180, 85.0511], [180, -85.0511], [-180, -85.0511]];
 
@@ -167,7 +172,16 @@ export type GlobeEvents = {
   // `ambiguous` lists the units in reach when a click on water was near more than one (then `id` is null).
   onSubPick?: (id: string | null, at: LngLat, ambiguous?: string[]) => void;
   onSubHover?: (id: string | null) => void;
+  // City Rush (see setRushCities): a discovered city under the pointer, or tapped. Clicks on a city never reach onPick.
+  onCityHover?: (id: string | null) => void;
+  onCityPick?: (id: string, at: LngLat) => void;
 };
+// A discovered City Rush city. `rank` orders labels when they do not all fit (0 = labelled first).
+// A City Rush marker: a city found, or (results only) one of the largest cities missed, drawn as a hollow ring.
+export type RushPoint = { id: string; name: string; at: LngLat; rank: number; missed?: boolean };
+// City Rush's view of a country's regions: internal borders only (thin lines over the country's own fill, nothing to
+// click) and a name per region, shown once the region is big enough on screen. From the same files as the Regions game.
+export type RushRegions = { borders: GeoJSON.FeatureCollection; labels: { id: string; name: string; at: LngLat; box: [number, number, number, number] }[] };
 // What showSubdivisions draws: one country's units (polygons with `id` and `color` properties) and its internal borders.
 // Coasts and international borders stay the country layer's, so they never change.
 export type SubdivisionLayerData = { units: GeoJSON.FeatureCollection; borders: GeoJSON.FeatureCollection };
@@ -315,8 +329,11 @@ export class GlobeView {
     map.addLayer({ id: 'flash-ring', type: 'circle', source: 'markers', filter: none, paint: { 'circle-radius': 8, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-stroke-opacity': 0 } });
 
     this.addSubdivisionLayers();
+    this.addRushLayers();
     map.on('click', e => {
-      const at: LngLat = [e.lngLat.lng, e.lngLat.lat], sub = this.subPick(e.point);
+      const at: LngLat = [e.lngLat.lng, e.lngLat.lat], city = this.rushAt(e.point);
+      if (city && this.events.onCityPick) { this.events.onCityPick(city, at); return; }
+      const sub = this.subPick(e.point);
       if (sub && this.events.onSubPick) { this.events.onSubPick(sub.id, at, sub.ambiguous); return; }
       const { id, land, ambiguous } = this.pickAt(e.point);
       this.events.onPick(id, at, land, ambiguous);
@@ -328,6 +345,9 @@ export class GlobeView {
       this.hoverFrame = 0;
       const point = hoverAt;
       if (!point) return;
+      const city = this.rushAt(point);
+      this.setRushHover(city);
+      if (city) { map.getCanvas().style.cursor = 'pointer'; this.setHover(null); this.setSubHover(null); return; }
       const sub = this.subAt(point);
       this.setSubHover(sub);
       if (sub) { map.getCanvas().style.cursor = 'pointer'; this.setHover(null); return; }
@@ -336,13 +356,171 @@ export class GlobeView {
       this.setHover(id);
     };
     map.on('mousemove', e => { hoverAt = e.point; this.hoverFrame ||= requestAnimationFrame(hoverPick); });
-    map.on('mouseout', () => { hoverAt = null; cancelAnimationFrame(this.hoverFrame); this.hoverFrame = 0; this.setHover(null); this.setSubHover(null); });
+    map.on('mouseout', () => { hoverAt = null; cancelAnimationFrame(this.hoverFrame); this.hoverFrame = 0; this.setHover(null); this.setSubHover(null); this.setRushHover(null); });
     this.playable = countries.features.filter(f => f.properties?.playable === 1).map(f => String(f.properties!.id));
     this.rings = markers.features.map(f => ({ id: String(f.properties?.id), at: (f.geometry as GeoJSON.Point).coordinates as LngLat }));
     this.small = new Set([...this.rings.map(r => r.id), ...halos.features.map(f => String(f.properties?.id))]);
     this.loaded = true;
     if (this.pendingDim) this.setDimmed(this.pendingDim);
+    if (this.rushPoints.length) this.setRushCities(this.rushPoints, this.rushPinned);
+    if (this.rushRegions) this.setRushRegions(this.rushRegions);
     return { countries, tiny: new Set(markers.features.map(f => String(f.properties?.id))) };
+  }
+
+  // ---- City Rush ----------------------------------------------------------------------------------------------------
+  // Discovered cities: one GeoJSON source and two circle layers, so thousands of dots cost one draw call, not thousands of
+  // DOM nodes. A new discovery glows gold for a moment (feature-state `fresh`, 1 → 0). Labels are HTML (the style has no
+  // glyphs): at most RUSH_LABELS at a time, chosen after every camera move so they never overlap (largest cities first,
+  // the newest discovery and the hovered city always).
+  private rushPoints: RushPoint[] = [];
+  private rushLabels = new Map<string, { el: HTMLElement; marker: maplibregl.Marker }>();
+  private rushPinned: string[] = [];
+  private rushHoverId: string | null = null;
+  private rushFresh = new Map<string, number>();   // id → start time of its glow
+  private rushFrame = 0;
+  private rushRegions: RushRegions | null = null;
+  private regionLabels = new Map<string, maplibregl.Marker>();
+  private addRushLayers() {
+    const map = this.map;
+    // Region borders: dark hairlines that read on any country colour and stay under the city dots.
+    map.addSource('rush-regions', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'rush-region-line', type: 'line', source: 'rush-regions', layout: { 'line-join': 'round' }, paint: {
+      'line-color': 'rgba(4, 14, 32, 0.6)', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.6, 4, 1.1, 8, 1.8],
+    } });
+    map.addSource('rush-cities', { type: 'geojson', data: EMPTY, promoteId: 'id' });
+    const fresh = ['coalesce', ['feature-state', 'fresh'], 0] as ExpressionSpecification;
+    // Zoom may only drive a top-level interpolate, so each zoom stop carries the data-driven extra (hover, glow).
+    const bySize = (extra: unknown): ExpressionSpecification => ['interpolate', ['linear'], ['zoom'], 1, ['+', 2.4, extra], 4, ['+', 3.4, extra], 8, ['+', 5, extra]] as unknown as ExpressionSpecification;
+    map.addLayer({ id: 'rush-glow', type: 'circle', source: 'rush-cities', paint: {
+      'circle-radius': bySize(['*', 13, fresh]), 'circle-color': COLORS.gold, 'circle-opacity': ['*', 0.45, fresh], 'circle-blur': 0.5,
+    } });
+    // Found: a white dot (gold while new). Missed (results): a hollow coral ring, so the two never read alike.
+    const missed = ['==', ['get', 'missed'], 1] as ExpressionSpecification;
+    map.addLayer({ id: 'rush-dot', type: 'circle', source: 'rush-cities', paint: {
+      'circle-radius': bySize(['+', ['case', hovered, 1.6, 0], ['case', missed, 1.4, 0], ['*', 2, fresh]]),
+      'circle-color': ['case', missed, 'rgba(255, 140, 120, 0.12)', ['>', fresh, 0.05], COLORS.gold, '#f4f8ff'],
+      'circle-stroke-color': ['case', missed, '#ff9d8a', 'rgba(3, 10, 24, 0.85)'], 'circle-stroke-width': ['case', missed, 2, 1.3],
+    } });
+    map.on('moveend', () => this.placeRushLabels());
+  }
+
+  // Replaces the discovered cities. Cheap enough to call on every discovery (a few thousand points at most).
+  setRushCities(points: RushPoint[], pinned: string[] = []) {
+    this.rushPoints = points;
+    this.rushPinned = pinned;
+    if (!this.loaded) return;
+    (this.map.getSource('rush-cities') as maplibregl.GeoJSONSource).setData({
+      type: 'FeatureCollection',
+      features: points.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p.at }, properties: { id: p.id, missed: p.missed ? 1 : 0 } })),
+    });
+    for (const id of this.rushFresh.keys()) this.map.setFeatureState({ source: 'rush-cities', id }, { fresh: this.freshAt(id, performance.now()) });
+    this.placeRushLabels();
+  }
+
+  // Shows a country's region borders and names in City Rush, or none.
+  setRushRegions(r: RushRegions | null) {
+    this.rushRegions = r;
+    if (!this.loaded) return;
+    (this.map.getSource('rush-regions') as maplibregl.GeoJSONSource).setData(r?.borders ?? EMPTY);
+    this.placeRushLabels();
+  }
+
+  // The glow for newly found cities: about a second, gold fading to white. Reduced motion: a steady highlight, then off.
+  private static FRESH_MS = 1100;
+  private freshAt(id: string, now: number) {
+    const t = (now - (this.rushFresh.get(id) ?? -Infinity)) / GlobeView.FRESH_MS;
+    return t >= 1 ? 0 : reduceMotion() ? 1 : 1 - t * t;
+  }
+  freshen(ids: string[]) {
+    const now = performance.now();
+    for (const id of ids) this.rushFresh.set(id, now);
+    cancelAnimationFrame(this.rushFrame);
+    const step = (time: number) => {
+      for (const [id] of this.rushFresh) {
+        const v = this.freshAt(id, time);
+        if (this.loaded) this.map.setFeatureState({ source: 'rush-cities', id }, { fresh: v });
+        if (v === 0) this.rushFresh.delete(id);
+      }
+      if (this.rushFresh.size) this.rushFrame = requestAnimationFrame(step);
+    };
+    this.rushFrame = requestAnimationFrame(step);
+  }
+
+  private rushAt(point: maplibregl.Point): string | null {
+    if (!this.rushPoints.length || !this.map.getLayer('rush-dot')) return null;
+    const r = this.reach / 2;
+    const hits = this.map.queryRenderedFeatures([[point.x - r, point.y - r], [point.x + r, point.y + r]], { layers: ['rush-dot'] });
+    if (!hits.length) return null;
+    // The nearest dot to the pointer, when several are in reach.
+    const near = hits.map(f => ({ id: String(f.properties.id), d: this.map.project((f.geometry as GeoJSON.Point).coordinates as LngLat).dist(point) }));
+    return near.sort((a, b) => a.d - b.d)[0].id;
+  }
+  private setRushHover(id: string | null) {
+    if (id === this.rushHoverId) return;
+    if (this.rushHoverId) this.map.setFeatureState({ source: 'rush-cities', id: this.rushHoverId }, { hover: false });
+    if (id) this.map.setFeatureState({ source: 'rush-cities', id }, { hover: true });
+    this.rushHoverId = id;
+    this.events.onCityHover?.(id);
+    this.placeRushLabels();
+  }
+
+  // Chooses which cities get a label: those on the visible side of the globe and on screen, the pinned (newest) and
+  // hovered ones first, then by rank; each label's box must not overlap one already placed. Labels are reused by id.
+  private placeRushLabels() {
+    const map = this.map, c = map.getCenter(), box = map.getContainer();
+    const W = box.clientWidth, H = box.clientHeight, max = W < 760 ? RUSH_LABELS_SMALL : RUSH_LABELS;
+    const first = new Set([...(this.rushHoverId ? [this.rushHoverId] : []), ...this.rushPinned]);
+    const order = [...this.rushPoints].sort((a, b) => (first.has(b.id) ? 1 : 0) - (first.has(a.id) ? 1 : 0) || a.rank - b.rank);
+    const placed: [number, number, number, number][] = [], keep = new Map<string, RushPoint>();
+    for (const p of order) {
+      if (keep.size >= max) break;
+      if (distanceKm([c.lng, c.lat], p.at) > 7000) continue;
+      const { x, y } = map.project(p.at);
+      if (x < 0 || y < 0 || x > W || y > H) continue;
+      // The label sits right of the dot: an estimate of its width from the name is enough to keep labels apart.
+      const r: [number, number, number, number] = [x + 4, y - 9, x + 12 + p.name.length * 6.6, y + 9];
+      if (r[2] > W) continue;   // never cut off by the screen's edge
+      if (placed.some(q => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) continue;
+      placed.push(r);
+      keep.set(p.id, p);
+    }
+    for (const [id, l] of this.rushLabels) if (!keep.has(id)) { l.marker.remove(); this.rushLabels.delete(id); }
+    for (const [id, p] of keep) {
+      const old = this.rushLabels.get(id);
+      if (old) { old.el.classList.toggle('pinned', first.has(id)); continue; }
+      const el = document.createElement('div');
+      el.className = `rush-label${first.has(id) ? ' pinned' : ''}${p.missed ? ' missed' : ''}`;
+      el.textContent = p.name;
+      this.rushLabels.set(id, { el, marker: new maplibregl.Marker({ element: el, anchor: 'left', offset: [7, 0] }).setLngLat(p.at).addTo(map) });
+    }
+    this.placeRegionLabels(placed);
+  }
+
+  // Region names: faint, centred on each region's label point, only for regions at least REGION_LABEL_PX across on screen
+  // (so a whole-country view names the big ones and zooming in names the rest), never over a city label or each other.
+  private placeRegionLabels(taken: [number, number, number, number][]) {
+    const map = this.map, c = map.getCenter(), box = map.getContainer(), W = box.clientWidth, H = box.clientHeight;
+    const keep = new Set<string>(), placed = [...taken];
+    for (const l of this.rushRegions?.labels ?? []) {
+      if (distanceKm([c.lng, c.lat], l.at) > 6500) continue;
+      const a = map.project([l.box[0], l.box[1]]), b = map.project([l.box[2], l.box[3]]);
+      if (Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) < REGION_LABEL_PX) continue;
+      const { x, y } = map.project(l.at);
+      if (x < 0 || y < 0 || x > W || y > H) continue;
+      const half = (l.name.length * 7.4) / 2 + 4;   // uppercase, letter-spaced
+      const r: [number, number, number, number] = [x - half, y - 8, x + half, y + 8];
+      if (r[0] < 0 || r[2] > W) continue;   // a name cut by the screen's edge reads worse than none
+      if (placed.some(q => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1])) continue;
+      placed.push(r);
+      keep.add(l.id);
+      if (!this.regionLabels.has(l.id)) {
+        const el = document.createElement('div');
+        el.className = 'rush-region-label';
+        el.textContent = l.name;
+        this.regionLabels.set(l.id, new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(l.at).addTo(map));
+      }
+    }
+    for (const [id, m] of this.regionLabels) if (!keep.has(id)) { m.remove(); this.regionLabels.delete(id); }
   }
 
   // ---- Subdivisions -------------------------------------------------------------------------------------------------
@@ -641,7 +819,9 @@ export class GlobeView {
   zoomBy(delta: number) { this.map.easeTo({ zoom: this.map.getZoom() + delta, duration: 300 }); }
 
   destroy() {
-    cancelAnimationFrame(this.flashFrame); cancelAnimationFrame(this.fadeFrame); cancelAnimationFrame(this.hoverFrame); this.setCities([]);
+    cancelAnimationFrame(this.flashFrame); cancelAnimationFrame(this.fadeFrame); cancelAnimationFrame(this.hoverFrame); cancelAnimationFrame(this.rushFrame); this.setCities([]);
+    for (const l of this.rushLabels.values()) l.marker.remove();
+    for (const m of this.regionLabels.values()) m.remove();
     for (const p of this.pulses) { clearTimeout(p.timer); p.marker.remove(); }
     this.map.remove();
   }

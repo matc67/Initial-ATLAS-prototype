@@ -21,7 +21,7 @@ How ATLAS stores places today, what is reusable, and how first-level divisions (
 
 Attribution is shown in the app footer (Natural Earth, flag-icons). Natural Earth is public domain; flag-icons is MIT.
 
-**Not available yet:** a city list beyond capitals and about six major cities per country. First-level divisions now exist for ten countries (see [subdivisions.md](subdivisions.md)).
+**Cities:** City Rush uses its own GeoNames-based, per-country city files (`public/data/cities/`, see [cities.md](cities.md)). `places.json` remains the small Natural Earth extract for the Explore panel. First-level divisions now exist for ten countries (see [subdivisions.md](subdivisions.md)).
 
 Each country's label point (`lx`, `ly`) is always on its own land: where Natural Earth's falls in the sea (Equatorial Guinea, New Zealand, Trinidad and Tobago and a few archipelagos), `npm run data` moves it onto the largest island. The camera, answer pulses and Mystery Country look at it.
 
@@ -91,5 +91,5 @@ Avoid shipping any of these whole: GeoNames `allCountries` is over 1.5 GB, and f
 3. **Guess the divisions** (`canada-provinces-find`, `usa-states-find`…): reuse the round engine, HUD and records with `entityType: 'admin1'`, the camera fitted to the country, and the Explore panel's challenge list linking to it. Progress gets the same dashboard per challenge.
 4. **Name the divisions**: the same targets with `text-entry`.
 5. **City markers and Find the city**: GeoNames-based per-country city files and a point layer, then `point-click` with a pixel tolerance. Start with capitals (world capitals, US state capitals), where the target list is unambiguous.
-6. **Name every city you know**: a new round shape. There is no queue: the player types, each matching city in scope is added, and duplicates are rejected. It reuses the clock, records and results, with "cities named" as the score. It needs `matchCities` with scope and minimum-population rules, and a clear rule for ambiguous names within one country (accept once, and mark both).
+6. **Name every city you know** (*done: City Rush, see [cities.md](cities.md)*): a new round shape. There is no queue: the player types, each matching city in scope is added, and repeats are rejected. It reuses the clock, records and results; the score is the population of the cities named, shown as City Population Coverage. A shared name means the largest city of that name, and a region picks another ("Portland, Maine").
 7. **Practice mistakes**: the latest run's review list is already stored in `Performance.latestRun.results`.

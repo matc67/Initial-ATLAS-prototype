@@ -30,6 +30,9 @@ const ICONS = {
   sound: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4v-5ZM16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11',
   mute: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4v-5ZM16.5 9.5l5 5M21.5 9.5l-5 5',
   layers: 'M12 3 2.5 8 12 13l9.5-5L12 3ZM2.5 12.5 12 17.5l9.5-5M2.5 16.5 12 21.5l9.5-5',
+  city: 'M3 21h18M5 21V10l5-3v14M10 21V4l6 3v14M16 21V11l3 1.5V21M7.5 12h.01M7.5 15.5h.01M13 9h.01M13 12.5h.01M13 16h.01',
+  share: 'M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 12v6.5A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V12',
+  list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
 };
 export const Icon = ({ name }: { name: keyof typeof ICONS }) =>
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={ICONS[name]} /></svg>;

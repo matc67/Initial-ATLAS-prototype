@@ -14,6 +14,14 @@ browser; there is no login and no server.
   **all 200 countries** or the **Classic 195** (UN members and observers).
 - **Mystery Country**: find a hidden country; each wrong guess is coloured by how close it is. Ranked by fewest
   guesses, then time. A puzzle in progress survives a refresh.
+- **City Rush**: how much of a country's city population can you name? Quick (3 minutes), Classic (5), Extended (10,
+  recommended) or Marathon (20) Rush, or **City Explorer** with no clock and a map saved per country. Every city you name
+  appears on the globe and adds its people; the score is **City Population Coverage**, the share of the people in the
+  country's listed cities that you found (not of its national population). Bests and history are kept per country and
+  duration. After every completed run, **Cities You Missed** shows the five largest cities you did not name; name them
+  next time and the next ones appear. One-letter typos of longer names are accepted, and region borders are drawn where
+  ATLAS has them. Results can be shared as text, a link (`?rush=CAN`, which never includes the answers) or an image.
+  194 countries; cities are GeoNames places of 1,000+ people (see `docs/cities.md`).
 - **Regions**: Find the Region and Name the Region for Australia, Brazil, Canada, France, Germany, India, Japan,
   Mexico, Nigeria and the United States, from Explore (or Play → Regions).
 
@@ -34,6 +42,7 @@ it only separates equally accurate runs. A wrong click never reveals the answer.
 | `npm run build` | Type-checks, then builds the static site into `dist/` |
 | `npm run preview` | Serves `dist/` locally, to check a production build |
 | `npm run data`, `relief`, `places`, `admin1` | Rebuild the map data in `public/data/` from Natural Earth (only when changing data; needs `data-raw/`) |
+| `npm run cities` | Rebuild the City Rush data in `public/data/cities/` from GeoNames (downloads about 210 MB into `data-raw/geonames/` the first time) |
 
 ## Deploy to Netlify
 
@@ -58,12 +67,13 @@ browser console should show no errors and no failed requests.
 ## What a visitor downloads
 
 About 400 KB of JavaScript (gzip; MapLibre is its own file, so it stays cached across releases), the country shapes
-(~760 KB gzip, preloaded with the page), a 930 KB relief image, and flags and region files only as they are needed.
+(~760 KB gzip, preloaded with the page), a 930 KB relief image, and flags, region files and City Rush city files (one country at a time, up to ~320 KB gzip) only as they are needed.
 
 ## Saved data
 
 Everything lives in `localStorage` (records, Mystery history and the puzzle in progress, sound settings, the chosen
-country set). If storage is blocked (some private modes), the game still works; records last for the visit only.
+country set, City Rush bests (people found) per country and duration, the last mode chosen, the last completed run's missed cities per country and mode, City Explorer maps per country, and a timed City Rush in
+progress, which resumes after a refresh with its original deadline). If storage is blocked (some private modes), the game still works; records last for the visit only.
 Records are keyed by challenge version, so a change to a roster or the scoring rules starts fresh records without
 deleting old ones.
 
@@ -71,7 +81,8 @@ deleting old ones.
 
 React 19 + TypeScript + Vite + MapLibre GL (globe projection). Game rules are pure functions in `src/game/` with tests
 beside them; `src/map/GlobeView.ts` owns the map; `src/App.tsx` connects the two. Data: Natural Earth (public domain),
-built into `public/data/` by the scripts in `scripts/`; flags from flag-icons (MIT, `public/flags/LICENSE.txt`). See
+built into `public/data/` by the scripts in `scripts/`; flags from flag-icons (MIT, `public/flags/LICENSE.txt`); cities from GeoNames (CC BY 4.0, attribution required,
+`docs/cities.md`). See
 `docs/geography.md` and `docs/subdivisions.md` for the data and the regions design.
 
 ## Known limitations

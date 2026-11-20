@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import Starfield from './components/Starfield';
 import ChallengePicker from './components/ChallengePicker';
+import CityRush, { noRushHandlers, type RushHandlers, type RushPhase } from './components/CityRush';
+import { loadActive as loadActiveRush } from './game/cityRushRecords';
+import { challengeFrom } from './game/share';
 import Hud, { type HudFx } from './components/Hud';
 import { MysteryHistory, MysteryHud, MysteryResults, MysterySearch } from './components/Mystery';
 import ProgressPanel from './components/ProgressPanel';
@@ -178,6 +181,18 @@ export default function App() {
   }, [countries]);
   const mysteryPool = (set: CountrySet) => mysteryPools[set];
 
+  // ---- City Rush ----------------------------------------------------------------------------------------------------------
+  // Open while `rushStart` is set (its key changes for each request, so a second request re-runs setup). CityRush owns the
+  // run; App only highlights its country, keeps the globe's padding right, and forwards globe events to it.
+  const [rushStart, setRushStart] = useState<{ country: string | null; key: number } | null>(null);
+  const [rushPhase, setRushPhase] = useState<RushPhase>('setup');
+  const [rushListOpen, setRushListOpen] = useState(false);
+  const [rushHighlight, setRushHighlight] = useState<{ selected: string | null; playable: Set<string> | null }>({ selected: null, playable: null });
+  const rushHandlers = useRef<RushHandlers>(noRushHandlers());
+  const shapesRef = useRef<Map<string, GeoJSON.Geometry>>(new Map());
+  const inRush = view === 'play' && !!rushStart;
+  const rushPlaying = inRush && rushPhase === 'playing';
+
   // ---- Regions (first-level subdivisions) -------------------------------------------------------------------------------
   // A country's regions in Explore: its panel says what it has and starts Find or Name the Region; its regions view shows
   // them on the globe. The small index loads the first time a country is opened in Explore or Progress opens, never at
@@ -206,6 +221,7 @@ export default function App() {
       globe = new GlobeView(mapDiv.current!, {
         onPick: (id, at, land, ambiguous) => handlers.current.pick(id, at, land, ambiguous), onHover: id => handlers.current.hover(id),
         onSubPick: (id, at, ambiguous) => handlers.current.subPick(id, at, ambiguous), onSubHover: id => handlers.current.subHover(id),
+        onCityHover: id => rushHandlers.current.cityHover(id), onCityPick: (id, at) => rushHandlers.current.cityPick(id, at),
       }, { glow: glowDiv.current!, shade: shadeDiv.current! });
     } catch {
       setError('ATLAS needs WebGL to draw the globe. Try another browser, or turn on hardware acceleration in your browser settings.');
@@ -216,21 +232,25 @@ export default function App() {
     if (import.meta.env.DEV) (window as unknown as { atlasMap: unknown }).atlasMap = globe.map;
     globe.jump(fit(AREA_CAMERA.World));
     globe.load()
-      .then(({ countries, tiny }) => { distRef.current = new CountryDistances(countries.features); setCountries(indexCountries(countries)); setTiny(tiny); })
+      .then(({ countries, tiny }) => {
+        shapesRef.current = new Map(countries.features.flatMap(f => (f.geometry ? [[String(f.properties?.id), f.geometry] as const] : [])));
+        distRef.current = new CountryDistances(countries.features); setCountries(indexCountries(countries)); setTiny(tiny); })
       .catch(() => setError('The map could not load. Check your connection and try again.'));
     return () => { globe.destroy(); globeRef.current = null; };
   }, []);
 
   // Centre the globe in the open space: beside the side panel, or under the question card during a round.
   useEffect(() => {
-    const pad = (animate: boolean) => globeRef.current?.setPadding(isMobile()
+    const pad = (animate: boolean) => globeRef.current?.setPadding(rushPlaying
+      ? (isMobile() ? { left: 0, right: 0, top: 250, bottom: rushListOpen ? window.innerHeight * 0.4 + 90 : 90 } : { left: 90, right: rushListOpen ? 360 : 90, top: 250, bottom: 50 })
+      : isMobile()
       ? { left: 0, right: 0, top: inRound ? 236 : mysteryPlaying ? 200 : 110, bottom: inRound ? 130 : mysteryPlaying ? 150 : subOpen ? window.innerHeight * 0.34 + 100 : window.innerHeight * 0.42 }
       : inRound ? { left: 100, right: 100, top: 236, bottom: 100 } : mysteryPlaying ? { left: 100, right: 360, top: 200, bottom: 110 } : { left: 110, right: 370, top: 90, bottom: 60 }, animate);
     pad(true);
     const onResize = () => pad(false);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [inRound, mysteryPlaying, subOpen]);
+  }, [inRound, mysteryPlaying, subOpen, rushPlaying, rushListOpen]);
   // Frames a subdivision view once its padding is in place (this runs after the padding effect above).
   useEffect(() => {
     if (subView) globeRef.current?.frame(subView.set.meta.frame.center, subView.set.meta.frame.radiusKm, 1200);
@@ -273,6 +293,23 @@ export default function App() {
   const frameScope = (g: Pick<Game, 'sub' | 'area'>) => (g.sub ? globeRef.current?.frame(g.sub.meta.frame.center, g.sub.meta.frame.radiusKm) : globeRef.current?.fly(fit(AREA_CAMERA[g.area])));
   const lookAtTarget = (p: Playable) => (p.frame ? globeRef.current?.frame(p.frame.center, Math.max(150, p.frame.radiusKm * 1.15)) : flyToCountry(p));
 
+  // Opens City Rush on the Play view, optionally on a country (a shared link). Any round or mystery on screen ends.
+  function openRush(country: string | null = null) {
+    leaveMystery();
+    commit(null);
+    setView('play');
+    setSelected(null);
+    setSelectedLand(null);
+    setHelp(false);
+    setRushPhase('setup');
+    setRushStart({ country, key: Date.now() });
+  }
+  function closeRush() {
+    setRushStart(null);
+    setRushHighlight({ selected: null, playable: null });
+    globeRef.current?.fly(fit(AREA_CAMERA[area]));
+  }
+
   function chooseArea(a: Area) {
     setArea(a);
     commit(null);
@@ -284,6 +321,7 @@ export default function App() {
   // current choice; Explore passes the opened country's continent to start that challenge directly.
   function startRound({ kind = 'full', area: a = area, mode: m = mode }: { kind?: ChallengeKind; area?: Area; mode?: Mode } = {}) {
     leaveMystery();
+    setRushStart(null);
     const full = countryChallenge(a, countrySet, m);
     const pool = full.targetIds.filter(id => countries.has(id));
     let c = full, queue = pickRound(pool);
@@ -316,6 +354,7 @@ export default function App() {
       const country = countries.get(countryId), ids = playableIds(set);
       if (!country || !subdivisionKinds(ids.length).includes(kind)) return;
       leaveMystery();
+      setRushStart(null);
       const terms = set.meta.terms.plural;
       const challenge = subdivisionChallenge(countryId, `${country.name}: ${terms.charAt(0).toUpperCase()}${terms.slice(1)}`, m, kind, ids);
       const queue = kind === 'sprint' ? pickRound(ids, SPRINT_SIZE) : pickRound(ids);
@@ -429,6 +468,12 @@ export default function App() {
     globeRef.current?.fly(fit(AREA_CAMERA.World));
   }
   handlers.current.pick = (id, at, land, ambiguous) => {
+    // City Rush: a country click chooses the country on its setup screen; tiny countries too close to tell apart zoom in.
+    if (inRush) {
+      if (ambiguous) globeRef.current?.fly({ center: at, zoom: Math.min(8, globeRef.current.map.getZoom() + 2) }, 700);
+      else rushHandlers.current.pick(id);
+      return;
+    }
     const g = gameRef.current;
     // Rings too close together to tell apart. In a round, those that cannot be the answer (outside the round or already
     // found) are set aside; if one candidate is left it is the click. Otherwise zoom in, and never count it as a mistake.
@@ -530,6 +575,7 @@ export default function App() {
   // for every answer, so it gives nothing away.
   function startMystery(set: CountrySet = countrySet) {
     leaveMystery();
+    setRushStart(null);
     const pool = mysteryPool(set), answer = pickMystery(pool, recentRef.current);
     if (!answer) return;
     recentRef.current = rememberRecent(recentRef.current, answer);
@@ -619,6 +665,11 @@ export default function App() {
   useEffect(() => {
     if (restored.current || !countries.size || !distRef.current) return;
     restored.current = true;
+    // A timed City Rush in progress comes back first (its clock never stops); a shared link opens City Rush on its country.
+    const link = challengeFrom(location.search);
+    if (link) history.replaceState(null, '', location.pathname + location.hash);
+    if (loadActiveRush()) { openRush(null); return; }
+    if (link && countries.has(link)) { openRush(link); return; }
     const a = loadActive(set => new Set(mysteryPool(set)));
     if (!a || gameRef.current) return;
     distRef.current.warm(a.answer);
@@ -672,13 +723,14 @@ export default function App() {
       if (round.phase === 'revealed' && last) s[last.id] = 'answer';
       if (round.phase === 'asking' && game!.mode === 'name' && targetId) s[targetId] = 'target';
     }
+    if (inRush && rushHighlight.selected) s[rushHighlight.selected] = 'selected';
     // Mystery Country: wrong guesses glow by heat (setHeat below); the answer turns green only once it is found.
     if (view === 'play' && mystery) {
       for (const x of missesOf(mystery.m)) s[x.id] = 'heat';
       if (mystery.m.phase === 'solved') s[mystery.m.answer] = 'solved';
     }
     return s;
-  }, [view, selected, round, game, last, targetId, runResults, mystery]);
+  }, [view, selected, round, game, last, targetId, runResults, mystery, inRush, rushHighlight.selected]);
   // A subdivision round's statuses: the same rules as countries, on the subdivision layer.
   const subStatuses = useMemo<StatusMap>(() => {
     const s: StatusMap = {};
@@ -698,10 +750,13 @@ export default function App() {
     // In a Classic 195 round, the 5 extra ATLAS countries fade back with everything outside the area.
     // Progress shows the records of the chosen country set, so it fades the rest the same way.
     // A mystery covers the whole world: only countries outside its set fade. A subdivision view fades every other country.
-    const out = (c: Country) => shownSubs ? c.id !== shownSubs.countryId : view === 'play' && mystery ? !inSet(c, mystery.set)
+    // City Rush: only its country once chosen; before that, every country with enough cities to play.
+    const rs = rushHighlight;
+    const out = (c: Country) => inRush ? (rs.selected ? c.id !== rs.selected : !!rs.playable && !rs.playable.has(c.id))
+      : shownSubs ? c.id !== shownSubs.countryId : view === 'play' && mystery ? !inSet(c, mystery.set)
       : !inArea(c, area) || (view === 'play' && !!game && !inSet(c, game.set)) || (view === 'progress' && !inSet(c, countrySet));
     if (countries.size) globeRef.current?.setDimmed(new Set([...countries.values()].filter(out).map(c => c.id)));
-  }, [area, countries, view, game, countrySet, mystery?.set, !!mystery, shownSubs]);
+  }, [area, countries, view, game, countrySet, mystery?.set, !!mystery, shownSubs, inRush, rushHighlight]);
   useEffect(() => { if (countries.size) globeRef.current?.setFocus(view === 'progress' ? selected : null); }, [view, selected, countries]);
   // The subdivision layer shows only the country on view, only in Explore.
   useEffect(() => { if (view !== 'explore' && subView) setSubView(null); }, [view]);
@@ -728,7 +783,7 @@ export default function App() {
   // only countries already guessed correctly are named: any other label would give an answer away (Show me answers stay
   // unnamed too, since they were not guessed).
   const guessedRight = inRound && !!hoverId && !!round?.answers.some(a => a.id === hoverId && !a.hint);
-  const hoverCountry = hoverId && (!inRound || guessedRight) ? countries.get(hoverId) : undefined;
+  const hoverCountry = hoverId && (!inRound || guessedRight) && !rushPlaying && !(inRush && rushPhase === 'done') ? countries.get(hoverId) : undefined;
   const selectedCountry = selected ? countries.get(selected) : undefined;
   // The countries whose regions can be shown and played, by name, for the Explore panel.
   const regionCountries = useMemo(() => !subIndex ? [] : Object.keys(subIndex.countries)
@@ -776,7 +831,7 @@ export default function App() {
     const b = (e.target as HTMLElement).closest('button');
     if (b && !b.disabled && !b.closest('[data-silent]')) audio.play({ kind: 'ui' });
   };
-  return <div className={`app${inRound ? ' in-round' : ''}${mysteryPlaying ? ' in-mystery' : ''}${answerBar || searchBar ? ' has-answer-bar' : ''}`} onClick={uiClick}>
+  return <div className={`app${inRound ? ' in-round' : ''}${mysteryPlaying ? ' in-mystery' : ''}${inRush ? ' in-rush' : ''}${rushPlaying ? ' rush-playing' : ''}${rushPlaying && rushListOpen ? ' rush-list-open' : ''}${answerBar || searchBar ? ' has-answer-bar' : ''}`} onClick={uiClick}>
     <Starfield />
     <div className="atmosphere" ref={glowDiv} />
     <div className="map" ref={mapDiv} />
@@ -784,7 +839,7 @@ export default function App() {
 
     <header className="topbar">
       <div className="brand"><Icon name="globe" /><span>ATLAS</span></div>
-      {!inRound && !inMystery && <nav className="areas" aria-label="Area">
+      {!inRound && !inMystery && !inRush && <nav className="areas" aria-label="Area">
         <div className="tabs">{TABS.map(a => <button key={a} className={a === tabOf(area) ? 'active' : ''} onClick={() => chooseArea(a)}>{a}</button>)}</div>
         {tabOf(area) === 'Americas' && <div className="subtabs">{AMERICAS.map(o => <button key={o.area} className={o.area === area ? 'active' : ''} onClick={() => chooseArea(o.area)}>{o.label}</button>)}</div>}
       </nav>}
@@ -804,6 +859,7 @@ export default function App() {
         <li><b>Name it</b> A country lights up in gold; type its name.</li>
         <li><b>Flags</b> We show a flag; click its country.</li>
         <li><b>Mystery</b> Guess a hidden country; each guess shows how far away it is.</li>
+        <li><b>City Rush</b> Pick a country and type its cities: each one appears on the globe and adds its people. 3, 5, 10 or 20 minutes, or no clock in City Explorer.</li>
         <li><b>Regions</b> States and provinces: open a country in Explore.</li>
       </ul>
       <p className="fine">A wrong click never shows the answer. Use Show me if you are stuck (0 points). Drag to turn the globe, scroll or pinch to zoom.</p>
@@ -853,7 +909,12 @@ export default function App() {
       <button type="submit" aria-label="Submit answer" data-silent><Icon name="arrow" /></button>
     </form>}
 
-    {!inRound && !inMystery && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : view === 'explore' && subView ? 'card panel sub' : 'card panel'}>
+    {inRush && countries.size > 0 && <CityRush
+      globe={globeRef.current} countries={countries} shapeOf={id => shapesRef.current.get(id) ?? null} start={rushStart!}
+      audio={audio} sound={sound} onSound={toggleSound} handlers={rushHandlers}
+      onHighlight={setRushHighlight} onPhase={setRushPhase} onListOpen={setRushListOpen} onExit={closeRush} />}
+
+    {!inRound && !inMystery && !inRush && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : view === 'explore' && subView ? 'card panel sub' : 'card panel'}>
       {view === 'play' && !game && <>
         {firstVisit && <p className="intro">A geography game on a 3D globe. Pick a way to play, choose an area at the top, and start.</p>}
         <div className="eyebrow">{SET_LABEL[countrySet]}</div>
@@ -867,6 +928,7 @@ export default function App() {
         <ChallengePicker area={areaShort(area)} loading={loading} poolSize={playIds.length}
           sprintBest={sprintRecord} fullBest={record} onSprint={() => startRound({ kind: 'sprint' })} onFull={() => startRound()}
           mysteryBest={mysteryRecord} mysterySize={mEntries.length} onMystery={() => startMystery()}
+          onCityRush={() => openRush()}
           onRegions={() => { setView('explore'); setSelected(null); setSelectedLand(null); }} />
         <div className="set-row">
           <span>Countries</span>
@@ -952,7 +1014,7 @@ export default function App() {
         {countries.size > 0 && <button className="btn small" onClick={() => setError('')}>Close</button>}
       </div>
     </div>}
-    <footer className="credits">Borders and relief: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> · Flags: flag-icons</footer>
+    <footer className="credits">Borders and relief: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a> · Flags: flag-icons{inRush && <> · Cities: <a href="https://www.geonames.org/" target="_blank" rel="noreferrer">GeoNames</a> (CC BY 4.0)</>}</footer>
   </div>;
 }
 

@@ -11,6 +11,7 @@
     "relief": "node scripts/build-relief.ts",
     "places": "node scripts/build-places.ts",
     "admin1": "node scripts/build-admin1.ts",
+    "cities": "node scripts/build-cities.ts",
     "test": "node --test 'src/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json",
     "admin1:audit": "node scripts/audit-admin1.ts"
