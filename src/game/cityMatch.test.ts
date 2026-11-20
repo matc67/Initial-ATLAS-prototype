@@ -214,3 +214,22 @@ test('a typo of a city already found is a repeat, never a second score', () => {
   assert.deepEqual(r.found, [t.id]);
   assert.equal(typoKeys(book, 'tornto').length, 1);
 });
+
+// ---- Sprint A regressions -----------------------------------------------------------------------------------------------------
+test('a region whose name starts with "The" can be typed with or without it', () => {
+  const lazio = city('Villanova', 9_000, [], 0), marche = city('Villanova', 1_500, [], 1);
+  const book = buildBook([lazio, marche], [['Lazio'], ['The Marches', 'Marche']]);
+  for (const g of ['Villanova, The Marches', 'Villanova the marches', 'Villanova, Marches', 'Villanova Marche']) assert.equal(findCity(book, g)?.id, marche.id, g);
+  assert.equal(matchGuess(book, 'Vilanova, The Marches')?.kind, 'typo', 'a typo in the name, "The" in the region');
+  assert.equal(findCity(book, 'Villanova')?.id, lazio.id);
+});
+
+test('a city only a nameless region could single out is not counted in the total (no guess reaches it)', () => {
+  const big = city('Libertad', 20_000, [], 0), small = city('Libertad', 5_210, [], 1);
+  const book = buildBook([big, small], [['Cagayan'], ['']]);
+  assert.deepEqual([...book.reachable], [big.id]);
+  assert.equal(book.total, 20_000);
+  // With a region name it is reachable as before.
+  const named = buildBook([big, small], [['Cagayan'], ['Bohol']]);
+  assert.equal(named.reachable.size, 2);
+});

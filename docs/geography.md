@@ -71,7 +71,7 @@ Never assume "states" or "provinces". `AdminTerms` in `entities.ts` carries the 
 | First-level divisions (states, provinces…) | **geoBoundaries ADM1** (gbOpen) | CC BY 4.0, attribution required | Per-country files, so Canada can load without the world. Stable `shapeID`s, ISO codes, maintained by William & Mary. |
 | Fallback / world overview of divisions | Natural Earth Admin 1 (1:10m) | Public domain | One file and the same pipeline as the borders, but uneven granularity: the UK has about 230 units, France has departments. Fine for an overview, not as the source of truth. |
 | Division names and types | geoBoundaries metadata + Wikidata (P31 "instance of", P300 ISO 3166-2) | CC0 (Wikidata) | Localised terms, ISO 3166-2 codes for stable joins. |
-| Cities | **GeoNames** `cities15000` (or `cities5000`) | CC BY 4.0 | Stable `geonameid`, alternate names, `admin1` codes, population, feature class (PPLC = capital, PPLA = division capital). Filter per country at build time. |
+| Cities | **GeoNames** `cities1000` (City Rush: places of 1,000+ people, see [cities.md](cities.md)) | CC BY 4.0 | Stable `geonameid`, alternate names, `admin1` codes, population, feature class (PPLC = capital, PPLA = division capital). Filter per country at build time. |
 | Capitals (cross-check) | Wikidata P36 | CC0 | Catches out-of-date flags like the Dodoma case. |
 
 Avoid shipping any of these whole: GeoNames `allCountries` is over 1.5 GB, and full-resolution geoBoundaries for the world is several hundred MB.

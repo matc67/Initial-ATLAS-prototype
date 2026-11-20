@@ -242,7 +242,9 @@ export default function App() {
   // Centre the globe in the open space: beside the side panel, or under the question card during a round.
   useEffect(() => {
     const pad = (animate: boolean) => globeRef.current?.setPadding(rushPlaying
-      ? (isMobile() ? { left: 0, right: 0, top: 250, bottom: rushListOpen ? window.innerHeight * 0.4 + 90 : 90 } : { left: 90, right: rushListOpen ? 360 : 90, top: 250, bottom: 50 })
+      ? (isMobile() ? { left: 0, right: 0, top: 250, bottom: rushListOpen ? window.innerHeight * 0.4 + 90 : 90 }
+        : window.innerHeight <= 520 ? { left: 90, right: 90, top: 200, bottom: 10 }
+        : { left: 90, right: rushListOpen && window.innerWidth >= 1180 ? 360 : 90, top: 250, bottom: 50 })
       : isMobile()
       ? { left: 0, right: 0, top: inRound ? 236 : mysteryPlaying ? 200 : 110, bottom: inRound ? 130 : mysteryPlaying ? 150 : subOpen ? window.innerHeight * 0.34 + 100 : window.innerHeight * 0.42 }
       : inRound ? { left: 100, right: 100, top: 236, bottom: 100 } : mysteryPlaying ? { left: 100, right: 360, top: 200, bottom: 110 } : { left: 110, right: 370, top: 90, bottom: 60 }, animate);

@@ -12,7 +12,24 @@ City Rush asks players how much of a country's city population they can name fro
 | Build | `npm run cities` (`scripts/build-cities.ts`). It downloads into `data-raw/geonames/`, which is gitignored: about 1 GB unzipped, mostly the alternate names. It writes `public/data/cities/`. |
 | Shipped | `index.json` (about 20 KB), plus one file per playable country, loaded only when that country is chosen: 6.6 MB in all, never loaded together. The largest are the United States (727 KB, ≈320 KB gzipped), Mexico and France (≈180 KB gzipped). Nothing loads at startup. |
 
-GeoNames updates daily, so the download is not pinned. Each country file carries a `version`, a fingerprint of every city that can be scored, with its population and the city it is part of. Records and saved progress key on it, so a rebuild that changes what can be scored starts that country's records fresh. Old records are kept, not deleted.
+Each country file carries a `version`, a fingerprint of every city that can be scored, with its population and the city it is part of. Records and saved progress key on it, so a rebuild that changes what can be scored starts that country's records fresh. Old records are kept under their own version, never deleted or compared with the new totals. A change of display name alone (a repaired spelling) does not change the version.
+
+### Provenance and reproducing a release
+
+GeoNames updates its files daily, so a release records exactly what it was built from, in `index.json` → `source`:
+- `inputs`: every file read, with its size and SHA-256. The alternate names (most of a GB) are identified by `rowsSha256`, the SHA-256 of the rows the build actually reads. Each also has `lastModified` (GeoNames' own date, recorded on download) and `downloadedAt`.
+- `dataDate`: the date of the newest input. There is no build time, so the same inputs and script always give byte-identical files.
+- `generator`: the SHA-256 of the build script and the matching rules it uses.
+
+| Command | What it does |
+|---|---|
+| `npm run cities` | Builds `public/data/cities/` from `data-raw/geonames/` (downloaded on first run). |
+| `npm run cities:verify` | Rebuilds into a temporary folder and checks it is byte-identical to `public/data/cities/`, after checking the inputs match the recorded checksums. Writes nothing. |
+| `npm run cities:snapshot` | Saves the inputs of the current data to `data-raw/release/geonames-<date>/` and a `.tar.gz` (≈29 MB: cities1000, the regions and country files, and only the alternate-name rows the build reads). Attach the archive to the GitHub release; it is not committed. |
+| `GEONAMES_DIR=<snapshot> npm run cities:verify` | Rebuilds a released dataset from its snapshot. Verified for this release: all 195 files identical. |
+| `npm run cities:validate` | The validation report (`scripts/validate-cities.ts`): failures, warnings for review, and every country whose denominator changed since a git ref (`-- --against <ref>`, default `HEAD`). Exits 1 on any failure; `npm test` runs the same checks. |
+
+**Releasing new city data:** `npm run cities`, then `npm run cities:validate` (no failures; read the warnings and the change table), `npm run cities:snapshot`, commit `public/data/cities/` and attach the snapshot archive to the release.
 
 ## What counts as a city
 
@@ -35,7 +52,15 @@ GeoNames' own country code decides, checked against the ATLAS map:
 
 ### Duplicate records
 
-GeoNames sometimes lists one place twice. Two records with the same name, in the same region, less than 10 km apart are treated as one place: the larger record is kept and the build lists the rest (65 at the last build, such as Hyesan, La Ceiba and Nanto). Same-name places in different regions are kept, even when they touch: Kansas City, Missouri and Kansas City, Kansas are two cities.
+GeoNames sometimes lists one place twice. The larger record is kept and the build lists the rest:
+- **The same name**, in the same region, less than 10 km apart (65 at the last build, such as Hyesan, La Ceiba and Nanto). Same-name places in different regions are kept, even when they touch: Kansas City, Missouri and Kansas City, Kansas are two cities.
+- **Two forms of one name** ("Mandaluyong" and "Mandaluyong City", "Cuetzalan" and "Ciudad de Cuetzalan", "Koror" and "Koror Town"), only when the records leave no doubt: same region, under 2 km apart, populations within 20% (8 at the last build). London and the City of London (8,000 people, a part of London) are not merged; neither are Kailua and Kailua Town (38,635 and 3,664).
+
+### Not settlements, and names that needed repair
+
+- **Left out as not settlements** (Mexico, by GeoNames' own INEGI locality type in brackets): housing developments (`[Fraccionamiento]`, `[Unidad Habitacional]`, 22) and prisons (`[CERESO]`, "Centro de Readaptación Social", 6). Other bracketed Mexican localities (farms, a greenhouse, a sawmill, a colonia: 8, about 13,000 people) are kept and listed by the validation report for review.
+- **Lost letters** ("Mar?S?"): the name is repaired from GeoNames' own alternate names ("Marpara South", "Kawlchaw East", "Sangau East"), or the place is left out when GeoNames has no clean spelling (2 in India).
+- **Another script.** A name in another script is shown by GeoNames' own Latin form ("Октябрьский" → "Oktjabr'skij", six North Macedonian villages). A name that adds its spelling in another script keeps its Latin words ("Sidi Senoussi سيدي سنوسي" → "Sidi Senoussi"). Marks shared by every script are not another script: Hawaiian names keep their ʻokina and macrons.
 
 ## Scoring
 
@@ -91,6 +116,8 @@ A guess is compared only with the chosen country's cities. A city in another cou
 - A name on its own means the largest city of that name: "Portland" is Portland, Oregon.
 - A name with a region means the largest city of that name in that region: "Portland, Maine", "Portland Maine", "Portland ME" and "Portland (Maine)" all work. Regions can be typed by their GeoNames name, ASCII form, English names and abbreviations ("ON", "Que.", "State of Maine"), and US postal codes.
 - Repeating a guess, or naming a city already found by another spelling, is "already found". When the name is shared, the message suggests adding a region.
+- A region can be typed with or without a leading "The" ("Villanova, The Marches" or "Villanova, Marche").
+- A city whose region GeoNames leaves blank cannot be singled out by region, so when a larger city shares its name it cannot be named and is left out of the total (Libertad in the Philippines, 5,210 people).
 - A city that shares both its name and its region with a larger one cannot be named separately (1,619 worldwide, about 0.2% of the listed population). It is left out of the total, so 100% stays reachable, and stays in the data files for a later version that accepts a district.
 
 **Collisions**
@@ -114,7 +141,7 @@ When the chosen country has reviewed subdivision data (Australia, Brazil, Canada
 
 ## Known limitations
 
-- **Overlap outside the reviewed list.** Other cities with districts listed by GeoNames are not covered, so a district and its city can both be claimed in full. Distance alone cannot tell a district from a neighbouring city (Pudong is part of Shanghai; Guarulhos, 14 km from São Paulo, is a separate city), so each case needs review. Known remaining cases include Luanda, Dhaka, Yangon, Ho Chi Minh City and the districts of some Turkish cities (Ankara, İzmir). Adding one is a line in `PARTS`.
+- **Overlap outside the reviewed list.** `npm run cities:validate` lists every city of 1M+ with no listed parts whose nearby listed places add up to a quarter of its own figure (35 at the last build). Most are separate municipalities next to a big city, correctly counted on their own (Higashiosaka beside Osaka, L'Hospitalet beside Barcelona, Frederiksberg, surrounded by Copenhagen but its own municipality); a few may be districts already inside the city's figure (Luanda, Manila's barangays, Da Nang's districts), where the data alone is not enough evidence to merge them. They are left as they are until each is checked. Other cities with districts listed by GeoNames are not covered, so a district and its city can both be claimed in full. Distance alone cannot tell a district from a neighbouring city (Pudong is part of Shanghai; Guarulhos, 14 km from São Paulo, is a separate city), so each case needs review. Known remaining cases include Luanda, Dhaka, Yangon, Ho Chi Minh City and the districts of some Turkish cities (Ankara, İzmir). Adding one is a line in `PARTS`.
 - **Figures differ in kind.** Some GeoNames populations are for a municipality (Chongqing, Istanbul), others for a city proper or an urban area. Coverage is fair within a country, because every player plays the same list, but it is not comparable between countries. Personal bests are kept per country and duration.
 - **Dominant cities.** In some countries one city holds most of the listed population (Bridgetown is 86% of Barbados's total), so one guess can reach a high coverage.
 - The population threshold misses some well-known small towns and includes some suburbs.

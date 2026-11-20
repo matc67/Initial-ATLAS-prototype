@@ -157,3 +157,38 @@ test('country files stay small enough to load one at a time', () => {
   }
   assert.ok(readFileSync(new URL('index.json', dir)).length < 40 * 1024, 'the index is small');
 });
+
+// ---- Sprint A: data quality and provenance ------------------------------------------------------------------------------------
+import { validateCities } from '../../scripts/validate-cities.ts';
+
+test('the validation report finds no failures in the shipped data', () => {
+  const r = validateCities(new URL('.', dir).pathname, { geonames: null });
+  assert.deepEqual(r.failures, []);
+});
+
+test('every name is shown in Latin script with no lost letters; repaired names come from GeoNames itself', () => {
+  for (const id of playable) for (const [, name] of load(id).cities) {
+    assert.ok(!/[?�]/.test(name), `${id} ${name}`);
+    assert.ok(![...name].some(ch => /\p{L}/u.test(ch) && !/[\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(ch)), `${id} ${name}`);
+  }
+  const names = (id: string) => new Set(load(id).cities.map(r => r[1]));
+  assert.ok(names('IND').has('Marpara South'));
+  assert.ok(names('DZA').has('Sidi Senoussi'));
+  assert.ok(names('USA').has('Mākaha-Kaʻena'), 'Hawaiian names keep the ʻokina and macrons');
+});
+
+test('housing developments and prisons are not cities; one place is never listed under two forms of its name', () => {
+  const mex = load('MEX').cities.map(r => r[1]);
+  assert.equal(mex.filter(n => /\[(Fraccionamiento|Unidad Habitacional|CERESO)\]|Centro de Readaptaci/i.test(n)).length, 0);
+  assert.equal(load('PHL').cities.filter(r => /^Mandaluyong/.test(r[1])).length, 1);
+  assert.equal(load('PLW').cities.filter(r => /^Koror/.test(r[1])).length, 1);
+});
+
+test('the index records where the data came from: every input, its checksum and date, and the generator', () => {
+  assert.match(index.source.dataDate, /^\d{4}-\d{2}-\d{2}$/);
+  const files = index.source.inputs.map(i => i.file).sort();
+  assert.deepEqual(files, ['admin1CodesASCII.txt', 'alternateNamesV2.txt', 'cities1000.txt', 'countryInfo.txt']);
+  for (const i of index.source.inputs) assert.match(i.sha256 ?? i.rowsSha256 ?? '', /^[0-9a-f]{64}$/, i.file);
+  assert.match(index.source.generator, /^[0-9a-f]{64}$/);
+  assert.equal('builtAt' in index.source, false, 'no build time: the same inputs give the same files');
+});

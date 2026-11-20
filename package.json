@@ -12,6 +12,9 @@
     "places": "node scripts/build-places.ts",
     "admin1": "node scripts/build-admin1.ts",
     "cities": "node scripts/build-cities.ts",
+    "cities:verify": "node scripts/build-cities.ts --verify",
+    "cities:snapshot": "node scripts/snapshot-geonames.ts",
+    "cities:validate": "node scripts/validate-cities.ts",
     "test": "node --test 'src/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json",
     "admin1:audit": "node scripts/audit-admin1.ts"

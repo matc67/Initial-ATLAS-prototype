@@ -17,7 +17,9 @@
 // it, as build-places.ts does. Anything else is left out and reported: places outside the 200 countries (Hong Kong,
 // French overseas regions…) and places in territory whose control is disputed and drawn on the other side (Crimea).
 import { execFileSync } from 'node:child_process';
-import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import * as turf from '@turf/turf';
 import type { Feature, MultiPolygon, Polygon } from 'geojson';
@@ -28,9 +30,14 @@ import { bookVersion, buildBook, foldCity, keptAliases, typoKeys, type RushCity 
 import { distanceKm, frameOf, type LngLat } from '../src/game/geo.ts';
 import type { CityFile, CityIndex, CityRow } from '../src/data/cities.ts';
 
-const DIR = 'data-raw/geonames';
+// The GeoNames files: the download folder, or a release snapshot (GEONAMES_DIR=…, see scripts/snapshot-geonames.ts).
+const DIR = process.env.GEONAMES_DIR ?? 'data-raw/geonames';
+// --verify: rebuild into a temporary folder and compare with public/data/cities, after checking the inputs are the ones the
+// shipped data records. Nothing in public/ is written.
+const VERIFY = process.argv.includes('--verify');
 const BASE_URL = 'https://download.geonames.org/export/dump';
-const OUT = process.env.CITY_OUT ?? 'public/data/cities';
+const SHIPPED = 'public/data/cities';
+const OUT = VERIFY ? mkdtempSync(`${tmpdir()}/atlas-cities-`) : process.env.CITY_OUT ?? SHIPPED;
 // The list: GeoNames' populated places of this many people or more (cities1000 holds every place of 1,000+), plus
 // national and first-level capitals of any size. CITY_MIN overrides it for measuring (5000 reads the same file).
 const MIN_POPULATION = Number(process.env.CITY_MIN ?? 1000);
@@ -51,6 +58,27 @@ const EXTRA_ALIASES: { [country: string]: { [name: string]: string[] } } = {
 };
 // Two records of one place: same name, same region, closer than this. The smaller is dropped (Hyesan, La Ceiba).
 const DUPLICATE_KM = 10;
+// Two records of one place under two forms of its name ("Mandaluyong" and "Mandaluyong City", "Cuetzalan" and "Ciudad de
+// Cuetzalan"): only when the record says so beyond doubt: same region, under 2 km apart, populations within 20%.
+const NAME_FORM = /^(city of|ciudad de|municipality of) | (city|town)$/g;
+const FORM_KM = 2, FORM_RATIO = 0.8;
+// Records that are not settlements, by GeoNames' own (INEGI) locality type in brackets: housing developments
+// (fraccionamientos, unidades habitacionales) and prisons (CERESO, centros de readaptación social).
+const NOT_SETTLEMENTS: { [cc: string]: RegExp } = { MX: /\[(Fraccionamiento|Unidad Habitacional|CERESO)\]|Centro de Readaptaci/i };
+// A name GeoNames stored with its letters lost ("Mar?S?"): repaired from GeoNames' own alternate names, or left out.
+const CORRUPT = /[?\uFFFD]/;
+// A letter outside the Latin script: such a name is shown by GeoNames' own Latin form (its ASCII name, else an English name).
+// Marks shared by every script (the Hawaiian ʻokina, apostrophes) are not letters of another script.
+const nonLatin = (s: string) => [...s].some(ch => /\p{L}/u.test(ch) && !/[\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.test(ch));
+const hasLatin = (s: string) => /\p{Script=Latin}/u.test(s);
+// A name that adds its own spelling in another script ("Sidi Senoussi سيدي سنوسي"): GeoNames' Latin words alone, when
+// every word is wholly in one script; otherwise (letters mixed inside a word) null.
+function latinWords(s: string): string | null {
+  const words = s.split(/\s+/);
+  if (words.some(w => nonLatin(w) && hasLatin(w))) return null;
+  const kept = words.filter(w => !nonLatin(w)).join(' ').replace(/[\s,;:/–-]+$/u, '').trim();
+  return kept.replace(/[^\p{L}]/gu, '').length >= 3 ? kept : null;
+}
 // Cities GeoNames lists inside a larger city whose own population already includes them, reviewed by hand. Without this,
 // New York City (8.8M) and Brooklyn (2.7M) would both be claimed in full. The parent is the largest place of that name in
 // the country. Its parts are, besides the parent:
@@ -96,8 +124,13 @@ const PARTS: { [country: string]: PartRule[] } = {
   JPN: [{ parent: 'Tokyo', a2: ['1865750', '1865187', '1864487', '1864242', '1861322', '1859779', '1859308', '1858665', '1857091', '1855848', '1855502', '1853655', '1852582', '1852140', '1852083', '1851510', '7475135'] }],
 };
 
+// When each file was published (GeoNames' Last-Modified) and downloaded, kept beside the files: the provenance of a build.
+type Manifest = { [file: string]: { lastModified: string | null; downloadedAt: string } };
+const MANIFEST = `${DIR}/manifest.json`;
+const manifest: Manifest = existsSync(MANIFEST) ? JSON.parse(readFileSync(MANIFEST, 'utf8')) : {};
 async function ensure(file: string, zip?: string) {
   if (existsSync(`${DIR}/${file}`)) return;
+  if (VERIFY || process.env.GEONAMES_DIR) throw new Error(`${DIR}/${file} is missing: nothing is downloaded when verifying or building from a snapshot.`);
   mkdirSync(DIR, { recursive: true });
   const name = zip ?? file;
   console.log(`Downloading ${BASE_URL}/${name}`);
@@ -105,11 +138,27 @@ async function ensure(file: string, zip?: string) {
   if (!res.ok) throw new Error(`Download failed: ${name} ${res.status}`);
   writeFileSync(`${DIR}/${name}`, Buffer.from(await res.arrayBuffer()));
   if (zip) execFileSync('unzip', ['-o', '-q', `${DIR}/${zip}`, file, '-d', DIR]);
+  manifest[file] = { lastModified: res.headers.get('last-modified'), downloadedAt: new Date().toISOString() };
+  writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2));
 }
 await ensure('alternateNamesV2.txt', 'alternateNamesV2.zip');
 await ensure('admin1CodesASCII.txt');
 await ensure('countryInfo.txt');
 await ensure('cities1000.txt', 'cities1000.zip');
+
+// ---- Provenance ---------------------------------------------------------------------------------------------------------
+// Every input's size and SHA-256. The alternate names are also fingerprinted by the rows the build actually reads (see the
+// scan below), so a snapshot holding only those rows reproduces the build exactly.
+const sha = (buf: Buffer | string) => createHash('sha256').update(buf).digest('hex');
+const INPUTS = ['cities1000.txt', 'alternateNamesV2.txt', 'admin1CodesASCII.txt', 'countryInfo.txt'];
+const inputInfo = INPUTS.map(file => {
+  const path = `${DIR}/${file}`, m = manifest[file];
+  // A file downloaded before the manifest existed: its modification time is the best record of when.
+  const downloadedAt = m?.downloadedAt ?? statSync(path).mtime.toISOString();
+  // The alternate names are identified by the rows read (rowsSha256), so neither their size nor their file hash is recorded.
+  const whole = file !== 'alternateNamesV2.txt';
+  return { file, bytes: whole ? statSync(path).size : null, sha256: whole ? sha(readFileSync(path)) : null as string | null, lastModified: m?.lastModified ?? null, downloadedAt };
+});
 
 const tsv = (file: string) => readFileSync(`${DIR}/${file}`, 'utf8').split('\n').filter(l => l && !l.startsWith('#')).map(l => l.split('\t'));
 
@@ -142,7 +191,10 @@ const admin1ByGid = new Map(admin1Rows.map(a => [Number(a[3]), a[0]]));
 type Place = {
   gid: number; name: string; ascii: string; lng: number; lat: number; pop: number; cc: string; a1: string; a2: string; a3: string; code: string;
   admin1: string; country: string; aliases: Set<string>; partOf: number | null;
+  fix: 'corrupt' | 'script' | null;   // a name still to repair from the alternate names
+  original: string;                   // GeoNames' name, as recorded
 };
+const notSettlements: string[] = [], renamed: string[] = [], unrepaired: string[] = [];
 const places = new Map<number, Place>();
 const report = { excludedCode: 0, small: 0, reassigned: new Map<string, number>(), dropped: new Map<string, number>(), examples: new Map<string, string[]>() };
 const note = (map: Map<string, number>, k: string, example: string) => {
@@ -164,11 +216,19 @@ for (const c of tsv('cities1000.txt')) {
   else if (ownShape && (contains(ownShape, p) || nearKm(ownShape, p) <= BORDER_KM)) country = own;
   else note(report.dropped, cc ? `${cc}${ownShape ? ' (outside its shape)' : ' (not one of the 200)'}` : '??', name);
   if (!country) continue;
+  if (NOT_SETTLEMENTS[cc]?.test(name)) { notSettlements.push(`${cc} ${name} (${population.toLocaleString()})`); continue; }
+  // The name shown: GeoNames' own, unless its letters were lost or it is not in Latin script (then fixed after the scan).
+  const words = !CORRUPT.test(name) && nonLatin(name) && hasLatin(name) ? latinWords(name) : null;
+  const fix: Place['fix'] | 'ascii' | 'words' = CORRUPT.test(name) ? 'corrupt' : !nonLatin(name) ? null : words ? 'words'
+    : ascii && !nonLatin(ascii) && !CORRUPT.test(ascii) && /\p{L}/u.test(ascii) ? 'ascii' : 'script';
   // Japanese and Korean names sometimes carry the administrative suffix ("Fukui-shi", "Goyang-si"): players type the
   // city's name, so that becomes the name, and the full form an alias.
-  const full = name.replace(/\s+/g, ' ').trim(), bare = SUFFIX[cc] ? full.replace(SUFFIX[cc], '') : full;
+  const shown = fix === 'ascii' ? ascii : fix === 'words' ? words! : name;
+  if (fix === 'ascii' || fix === 'words') renamed.push(`${cc} ${name} → ${shown}`);
+  const full = shown.replace(/\s+/g, ' ').trim(), bare = SUFFIX[cc] ? full.replace(SUFFIX[cc], '') : full;
   places.set(Number(gid), {
     gid: Number(gid), name: bare, ascii, lng: p[0], lat: p[1], pop: population, cc, a1, a2, a3, code: fcode, partOf: null,
+    fix: fix === 'ascii' || fix === 'words' ? null : fix, original: name,
     admin1: admin1Names.get(`${cc}.${a1}`) ?? '', country, aliases: new Set([ascii, full].filter(x => x && x !== bare)),
   });
 }
@@ -183,6 +243,17 @@ const duplicates: string[] = [];
     const k = `${p.country}|${p.a1}|${foldCity(p.name)}`, prev = seen.get(k) ?? [];
     const twin = prev.find(q => distanceKm([q.lng, q.lat], [p.lng, p.lat]) < DUPLICATE_KM);
     if (twin) { places.delete(p.gid); duplicates.push(`${p.country} ${p.name} (${p.pop.toLocaleString()}, kept ${twin.pop.toLocaleString()})`); continue; }
+    seen.set(k, [...prev, p]);
+  }
+}
+
+{
+  const seen = new Map<string, Place[]>();
+  for (const p of [...places.values()].sort((a, b) => b.pop - a.pop || a.gid - b.gid)) {
+    const core = foldCity(p.name).replace(NAME_FORM, '');
+    const k = `${p.country}|${p.a1}|${core}`, prev = seen.get(k) ?? [];
+    const twin = prev.find(q => foldCity(q.name) !== foldCity(p.name) && distanceKm([q.lng, q.lat], [p.lng, p.lat]) < FORM_KM && p.pop >= FORM_RATIO * q.pop);
+    if (twin) { places.delete(p.gid); duplicates.push(`${p.country} ${p.name} (${p.pop.toLocaleString()}), the same place as ${twin.name} (${twin.pop.toLocaleString()})`); continue; }
     seen.set(k, [...prev, p]);
   }
 }
@@ -217,10 +288,18 @@ const LATIN = /^[\p{Script=Latin}\p{M}\s'’.\-()&,]+$/u;
 const goodAlias = (a: string) => LATIN.test(a) && !/\d/.test(a) && !(/^[A-Z\s.]+$/.test(a) && a.replace(/[\s.]/g, '').length <= 5) && a.replace(/[^\p{L}]/gu, '').length >= 3;
 const lines = createInterface({ input: createReadStream(`${DIR}/alternateNamesV2.txt`), crlfDelay: Infinity });
 let scanned = 0;
+const usedRows = createHash('sha256');
+const repairs = new Map<number, string>();
 for await (const line of lines) {
   scanned++;
   const t = line.split('\t'), gid = Number(t[1]), p = places.get(gid);
   const region = !p ? admin1ByGid.get(gid) : undefined;
+  if (p || region) usedRows.update(line + '\n');
+  // A repair for a name to fix: a Latin name with no lost letters, untagged or English, never historic or colloquial.
+  if (p?.fix && !repairs.has(gid) && (t[2] === '' || t[2] === 'en') && t[6] !== '1' && t[7] !== '1') {
+    const a = t[3].replace(/\s+/g, ' ').trim();
+    if (!CORRUPT.test(a) && !nonLatin(a) && a.replace(/[^\p{L}]/gu, '').length >= 3) repairs.set(gid, a);
+  }
   if (region) {
     // A region: English names and abbreviations ("ON" for Ontario), never historic or colloquial ones.
     const a = t[3].replace(/\s+/g, ' ').trim();
@@ -235,6 +314,12 @@ for await (const line of lines) {
   if (a && a !== p.name && goodAlias(a)) p.aliases.add(a);
 }
 console.log(`Scanned ${scanned.toLocaleString()} alternate names.`);
+const altRowsSha = usedRows.digest('hex');
+for (const p of places.values()) if (p.fix) {
+  const name = repairs.get(p.gid);
+  if (name) { renamed.push(`${p.cc} ${p.original} → ${name}`); p.aliases.delete(name); p.name = name; p.fix = null; }
+  else { places.delete(p.gid); unrepaired.push(`${p.cc} ${p.original} (${p.pop.toLocaleString()})`); }
+}
 for (const [country, names] of Object.entries(EXTRA_ALIASES)) for (const [name, extra] of Object.entries(names)) {
   const ps = [...places.values()].filter(p => p.country === country && p.name === name);
   if (!ps.length) throw new Error(`EXTRA_ALIASES: no place named ${name} in ${country}`);
@@ -277,7 +362,11 @@ mkdirSync(OUT, { recursive: true });
 const index: CityIndex = {
   source: {
     name: `GeoNames cities1000 (places of ${MIN_POPULATION.toLocaleString()}+ people) and alternate names`, url: `${BASE_URL}/`, licence: 'CC BY 4.0',
-    attribution: 'Contains data from GeoNames (geonames.org), licensed under CC BY 4.0.', builtAt: new Date().toISOString(),
+    attribution: 'Contains data from GeoNames (geonames.org), licensed under CC BY 4.0.',
+    // No build time: the same inputs and script give byte-identical files. The inputs say when the data is from.
+    dataDate: inputInfo.map(i => i.downloadedAt).sort().at(-1)!.slice(0, 10),
+    inputs: inputInfo.map(i => i.file === 'alternateNamesV2.txt' ? { ...i, sha256: null, rowsSha256: altRowsSha } : i),
+    generator: sha(['scripts/build-cities.ts', 'src/game/cityMatch.ts', 'src/game/names.ts'].map(f => readFileSync(f, 'utf8')).join('\n')),
   },
   minPopulation: MIN_POPULATION, minNames: MIN_NAMES, countries: {},
 };
@@ -327,4 +416,23 @@ const entries = Object.entries(index.countries);
 console.log(`Wrote ${written} playable countries (${(bytes / 1e6).toFixed(1)} MB). ${entries.length - written} countries have fewer than ${MIN_NAMES} names:`,
   entries.filter(([, e]) => !e.playable).map(([id, e]) => `${id} ${e.findable}`).join(', '));
 console.log(`Smaller places kept as typo guards: ${nearbyTotal.toLocaleString()}`);
+const list = (title: string, xs: string[]) => console.log(`${title} (${xs.length}):${xs.length ? `\n  ${xs.join('\n  ')}` : ' none'}`);
+list('Not settlements, left out', notSettlements);
+list('Shown by a Latin or repaired name', renamed);
+list('Names that could not be repaired, left out', unrepaired);
+
+// ---- Verify ------------------------------------------------------------------------------------------------------------
+if (VERIFY) {
+  const shipped = JSON.parse(readFileSync(`${SHIPPED}/index.json`, 'utf8')) as CityIndex;
+  const want = new Map((shipped.source.inputs ?? []).map(i => [i.file, i.rowsSha256 ?? i.sha256]));
+  const got = index.source.inputs.map(i => [i.file, i.rowsSha256 ?? i.sha256] as const);
+  const inputDiff = got.filter(([f, h]) => want.get(f) !== h).map(([f]) => f);
+  const files = [...new Set([...readdirSync(OUT), ...readdirSync(SHIPPED)])].sort();
+  const fileDiff = files.filter(f => !existsSync(`${OUT}/${f}`) || !existsSync(`${SHIPPED}/${f}`) || !readFileSync(`${OUT}/${f}`).equals(readFileSync(`${SHIPPED}/${f}`)));
+  rmSync(OUT, { recursive: true, force: true });
+  if (inputDiff.length) console.log(`Inputs differ from the ones the shipped data records: ${inputDiff.join(', ')}. Use the matching snapshot (GEONAMES_DIR=…).`);
+  if (fileDiff.length) console.log(`Not reproduced: ${fileDiff.length} file(s) differ (${fileDiff.slice(0, 10).join(', ')}${fileDiff.length > 10 ? ', …' : ''}).`);
+  else console.log(`Reproduced: all ${files.length} files are identical to public/data/cities.`);
+  process.exit(inputDiff.length || fileDiff.length ? 1 : 0);
+}
 console.log(`No cities at all: ${ROSTER.filter(r => !index.countries[r.id]).map(r => r.id).join(', ') || 'none'}`);

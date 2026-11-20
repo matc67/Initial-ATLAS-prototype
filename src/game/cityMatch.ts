@@ -81,12 +81,15 @@ export function buildBook(cities: RushCity[], regionNames: string[][] = [], smal
   const regions = new Map<string, Set<number>>();
   regionNames.forEach((forms, i) => { for (const f of forms) { const k = foldCity(f); if (k) regions.set(k, (regions.get(k) ?? new Set()).add(i)); } });
 
-  // Reachable: the city a name finds on its own, and the largest of that name in each region ("Portland, Maine").
+  // Reachable: the city a name finds on its own, and the largest of that name in each region ("Portland, Maine"). A region
+  // with no name to type (GeoNames has none for a few places) cannot narrow a guess, so a city that only it could reach is
+  // not reachable, and stays out of the total.
+  const named = new Set(regionNames.flatMap((forms, i) => (forms.some(f => foldCity(f)) ? [i] : [])));
   const reachable = new Set<string>();
   for (const ids of names.values()) {
     reachable.add(ids[0]);
     const firstIn = new Set<number>();
-    for (const id of ids) { const r = byId.get(id)!.region; if (!firstIn.has(r)) { firstIn.add(r); reachable.add(id); } }
+    for (const id of ids) { const r = byId.get(id)!.region; if (!firstIn.has(r)) { firstIn.add(r); if (named.has(r)) reachable.add(id); } }
   }
   const parts = new Map<string, string[]>();
   for (const c of sorted) if (c.partOf && byId.has(c.partOf)) parts.set(c.partOf, [...(parts.get(c.partOf) ?? []), c.id]);
@@ -97,6 +100,10 @@ export function buildBook(cities: RushCity[], regionNames: string[][] = [], smal
   return { cities: byId, names, regions, reachable, parts, total, small };
 }
 const idNum = (id: string) => Number(id.slice(3)) || 0;
+
+// The regions a typed region means. Folding drops a leading "the" only from a whole guess, so "The Marches" is stored as
+// "marches" while "Villanova, The Marches" leaves "the marches" here: the article is dropped from the region part too.
+const regionFor = (book: CityBook, k: string) => book.regions.get(k) ?? (k.startsWith('the ') ? book.regions.get(k.slice(4)) : undefined);
 
 // What a guess finds: one city, and whether a region narrowed it. Deterministic, so the same words always mean the same
 // city whatever has been found already:
@@ -111,7 +118,7 @@ export function findCity(book: CityBook, guess: string): CityMatch | null {
   if (whole) return { id: whole[0], qualified: false };
   const words = k.split(' ');
   for (let i = words.length - 1; i >= 1; i--) {
-    const ids = book.names.get(words.slice(0, i).join(' ')), rs = book.regions.get(words.slice(i).join(' '));
+    const ids = book.names.get(words.slice(0, i).join(' ')), rs = regionFor(book, words.slice(i).join(' '));
     if (!ids || !rs) continue;
     const id = ids.find(x => rs.has(book.cities.get(x)!.region));
     if (id) return { id, qualified: true };
@@ -176,7 +183,7 @@ export function matchGuess(book: CityBook, guess: string): GuessMatch | null {
   if (exact) return { kind: 'exact', ...exact };
   const k = foldCity(guess);
   if (!k) return null;
-  const splits = k.split(' ').map((_, i, w) => ({ name: w.slice(0, i).join(' '), rs: book.regions.get(w.slice(i).join(' ')) }))
+  const splits = k.split(' ').map((_, i, w) => ({ name: w.slice(0, i).join(' '), rs: regionFor(book, w.slice(i).join(' ')) }))
     .filter((x): x is { name: string; rs: Set<number> } => !!x.name && !!x.rs).reverse();
   const smallName = book.small.get(k) ?? splits.map(x => book.small.get(x.name)).find(Boolean);
   if (smallName) return { kind: 'small', name: smallName };

@@ -53,6 +53,8 @@ type Props = {
 // Coverage milestones → the chime of a streak of that size (audio.ts).
 const MILESTONE_CUE: { [pct: number]: number } = { 10: 5, 25: 10, 50: 20, 75: 50, 90: 100 };
 const isSmall = () => window.innerWidth <= 760;
+// The found-cities list starts open only where it fits beside the play panel without covering the map.
+const roomForList = () => window.innerWidth >= 1180 && window.innerHeight >= 600;
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
 
 function prepare(file: CityFile): Loaded {
@@ -85,7 +87,7 @@ export default function CityRush(p: Props) {
   const [party, setParty] = useState<{ n: number; key: number } | null>(null);
   const [welcome, setWelcome] = useState('');
   const [text, setText] = useState('');
-  const [listOpen, setListOpenState] = useState(() => !isSmall());
+  const [listOpen, setListOpenState] = useState(roomForList);
   const setListOpen = (o: boolean) => { setListOpenState(o); p.onListOpen(o); };
   const [timed, setTimed] = useState(loadTimedStore);
   const explorerRef = useRef<ExplorerStore>(loadExplorer());

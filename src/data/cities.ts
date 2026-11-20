@@ -23,7 +23,14 @@ export type CityFile = {
 // `findable`: the cities a guess can claim; `population`: their people, the denominator of City Population Coverage.
 export type CityIndexEntry = { cities: number; findable: number; population: number; version: string; playable: boolean };
 export type CityIndex = {
-  source: { name: string; url: string; licence: string; attribution: string; builtAt: string };
+  source: {
+    name: string; url: string; licence: string; attribution: string;
+    dataDate: string;            // when the GeoNames files were downloaded (the newest), YYYY-MM-DD
+    // Each input: its size and SHA-256 (the alternate names: the SHA-256 of the rows the build reads), and when it was
+    // published and downloaded. `npm run cities -- --verify` checks a rebuild against these.
+    inputs: { file: string; bytes: number | null; sha256: string | null; rowsSha256?: string; lastModified: string | null; downloadedAt: string }[];
+    generator: string;           // SHA-256 of the build script and the matching rules it uses
+  };
   minPopulation: number;           // the dataset's own threshold: "places with at least 1,000 people"
   minNames: number;                // a country needs this many findable cities to be playable
   countries: { [countryId: string]: CityIndexEntry };

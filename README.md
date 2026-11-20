@@ -43,6 +43,8 @@ it only separates equally accurate runs. A wrong click never reveals the answer.
 | `npm run preview` | Serves `dist/` locally, to check a production build |
 | `npm run data`, `relief`, `places`, `admin1` | Rebuild the map data in `public/data/` from Natural Earth (only when changing data; needs `data-raw/`) |
 | `npm run cities` | Rebuild the City Rush data in `public/data/cities/` from GeoNames (downloads about 210 MB into `data-raw/geonames/` the first time) |
+| `npm run cities:validate` | Validate the city data and list what changed since the last commit (see `docs/cities.md`) |
+| `npm run cities:verify` | Check the city data rebuilds byte-for-byte from its recorded inputs |
 
 ## Deploy to Netlify
 
