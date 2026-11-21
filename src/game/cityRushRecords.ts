@@ -5,7 +5,7 @@
 //             breaks a tie). Coverage follows from it: the denominator is fixed by the data version.
 //   explorer  per country: the cities found so far, so City Explorer carries on where the player left it.
 //   active    the timed run in progress (at most one), so a refresh resumes it with the same deadline, never a new one.
-import { DEFAULT_DURATION, elapsedMs, isDuration, type Duration, type Rush } from './cityRush.ts';
+import { DEFAULT_DURATION, elapsedMs, inMenu, isDuration, type Duration, type Rush } from './cityRush.ts';
 
 export type TimedRecord = {
   country: string; durationMs: number; version: string;
@@ -110,7 +110,8 @@ export function withoutExplorerRun(s: ExplorerStore, country: string): ExplorerS
   return { last: s.last === country ? null : s.last, countries: rest };
 }
 
-// The mode last chosen on the setup screen: a duration in seconds, or 'explorer'. Extended (10 minutes) until one is chosen.
+// The mode last chosen on the setup screen: one of the menu's durations, or 'explorer'; Classic (10 minutes) until one is
+// chosen. A choice saved before v1.2 of a length no longer in the menu (5 or 20 minutes) becomes Classic.
 export type RushChoice = Duration | 'explorer';
 export const CHOICE_KEY = 'atlas-city-rush-choice-v1';
 export function loadChoice(from: Storage | null = storage()): RushChoice {
@@ -118,8 +119,14 @@ export function loadChoice(from: Storage | null = storage()): RushChoice {
   try { v = from?.getItem(CHOICE_KEY) ?? null; } catch { /* default */ }
   if (v === 'explorer') return 'explorer';
   const n = Number(v);
-  return isDuration(n) ? n : DEFAULT_DURATION;
+  return isDuration(n) && inMenu(n) ? n : DEFAULT_DURATION;
 }
+// The country last chosen on the setup screen, so coming back to City Rush from the menu opens on it.
+export const COUNTRY_KEY = 'atlas-city-rush-country-v1';
+export function loadLastCountry(from: Storage | null = storage()): string | null {
+  try { const v = from?.getItem(COUNTRY_KEY) ?? null; return v && /^[A-Z]{3}$/.test(v) ? v : null; } catch { return null; }
+}
+export const saveLastCountry = (id: string, to: Storage | null = storage()) => { try { to?.setItem(COUNTRY_KEY, id); } catch { /* kept for this visit */ } };
 export const saveChoice = (c: RushChoice, to: Storage | null = storage()) => { try { to?.setItem(CHOICE_KEY, String(c)); } catch { /* kept for this visit */ } };
 
 export function loadActive(from: Storage | null = storage()): SavedRun | null {

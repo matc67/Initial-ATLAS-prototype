@@ -3,7 +3,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { decodeAnswer } from '../../src/game/mysteryRecords.ts';
 import { ROSTER } from '../../src/data/roster.ts';
-import { DESKTOP, PHONE, contextFor, finishRush, label, readoutValue, sayCity, startMystery, startRegions, startRound, startRush, storage, watch, type Size } from './helpers.ts';
+import { DESKTOP, PHONE, contextFor, exitGame, finishRush, openRush, label, readoutValue, sayCity, startMystery, startRegions, startRound, startRush, storage, watch, type Size } from './helpers.ts';
 
 const hudCount = (page: Page) => page.locator('.hud-count b').textContent().then(t => Number(t));
 const clickMap = async (page: Page, touch: boolean) => {
@@ -41,7 +41,7 @@ for (const size of [PHONE, DESKTOP] as Size[]) {
       expect(await hudCount(page)).toBe(0);
       await revealAndNext(page);
       await expect.poll(() => hudCount(page)).toBe(1);
-      await page.click('.hud-top .close');
+      await exitGame(page);
       await expect(page.locator('.hud')).toHaveCount(0);
       await expect(page.locator('.challenge.sprint')).toBeVisible();
     });
@@ -51,7 +51,7 @@ for (const size of [PHONE, DESKTOP] as Size[]) {
       await startRound(page, 'Name it');
       await page.click('.hud-meta .link:has-text("Show me")');
       const answer = (await page.locator('.hud-name h2').textContent())!.trim();
-      await page.click('.hud-top .close');
+      await exitGame(page);
       // …and answered in the same Sprint, drawn again.
       await startRound(page, 'Name it');
       await page.fill('.answer-bar input', 'Atlantis');
@@ -95,7 +95,7 @@ for (const size of [PHONE, DESKTOP] as Size[]) {
       expect(total).toBeGreaterThan(10);
       await revealAndNext(page);
       await expect.poll(() => hudCount(page)).toBe(1);
-      await page.click('.hud-top .close');
+      await exitGame(page);
       await expect(page.locator('.hud')).toHaveCount(0);
     });
 
@@ -120,7 +120,7 @@ for (const size of [PHONE, DESKTOP] as Size[]) {
 
     test('Mystery: can be left', async () => {
       await startMystery(page);
-      await page.click('.mystery-hud .hud-top .close');
+      await exitGame(page);
       await expect(page.locator('.mystery-hud')).toHaveCount(0);
     });
 
@@ -131,7 +131,7 @@ for (const size of [PHONE, DESKTOP] as Size[]) {
       await expect.poll(() => page.locator('.hud-line').textContent()).not.toBe(before);
       await revealAndNext(page);
       await expect.poll(() => hudCount(page)).toBe(1);
-      await page.click('.hud-top .close');
+      await exitGame(page);
       await expect(page.locator('.hud')).toHaveCount(0);
     });
 
@@ -150,11 +150,13 @@ for (const size of [PHONE, DESKTOP] as Size[]) {
       await expect(page.locator('.rush-results')).toContainText('Toronto');
     });
 
-    test('City Explorer: cities found, Leave keeps the map, Finish shows it', async () => {
+    test('City Explorer: cities found, Exit keeps the map, Finish shows it', async () => {
       await startRush(page, 'City Explorer');
       await sayCity(page, 'Ottawa');
-      await page.click('.rush-hud button:has-text("Leave")');
-      await expect(page.locator('.rush-setup')).toBeVisible();
+      // Exit goes back to the menu, with the map saved: no question asked, nothing lost.
+      await exitGame(page, false);
+      await expect(page.locator('.challenge.sprint:not([disabled])')).toBeVisible();
+      await openRush(page, 'CAN');
       await expect(page.locator('.rush-modes button:has-text("City Explorer")')).toContainText('1 found');
       await page.click('.rush-modes button:has-text("City Explorer")');
       await page.click('.rush-setup .btn.primary');

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   coverageOf, elapsedMs, exactPeople, finishRush, formatClock, formatCoverage, formatPeople, guessRush, isExpired, milestoneCrossed, newRush,
-  pauseRush, remainingMs, resumeRush, DEFAULT_DURATION, DURATIONS, rushName,
+  pauseRush, remainingMs, resumeRush, DEFAULT_DURATION, DURATIONS, MENU_DURATIONS, rushName,
 } from './cityRush.ts';
 
 const T0 = 1_700_000_000_000;
@@ -100,10 +100,11 @@ test('clock formatting', () => {
   assert.equal(formatClock(3_723_000), '1:02:03');
 });
 
-test('four timed lengths and City Explorer, with Extended (10 minutes) recommended', () => {
+test('the menu offers Quick (3 min) and Classic (10 min, the default) with City Explorer; 5 and 20 minutes still play', () => {
   assert.deepEqual([...DURATIONS], [180, 300, 600, 1200]);
+  assert.deepEqual([...MENU_DURATIONS], [180, 600]);
   assert.equal(DEFAULT_DURATION, 600);
-  assert.deepEqual(DURATIONS.map(d => rushName(d * 1000)), ['Quick Rush', 'Classic Rush', 'Extended Rush', 'Marathon Rush']);
+  assert.deepEqual(DURATIONS.map(d => rushName(d * 1000)), ['Quick Rush', '5-Minute Rush', 'Classic Rush', '20-Minute Rush']);
   assert.equal(rushName(null), 'City Explorer');
   for (const d of DURATIONS) {
     const r = newRush('CAN', 'v1', 'timed', T0, d);

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { finishRush, guessRush, newRush, type Rush } from './cityRush.ts';
 import {
   ACTIVE_KEY, BESTS_KEY, EXPLORER_KEY, addTimedRun, loadActive, loadExplorer, loadTimedStore, restoreRun, saveActive, saveExplorer,
-  saveTimedStore, timedKey, toSaved, withExplorerRun, withoutExplorerRun, CHOICE_KEY, loadChoice, saveChoice,
+  saveTimedStore, timedKey, toSaved, withExplorerRun, withoutExplorerRun, CHOICE_KEY, loadChoice, saveChoice, COUNTRY_KEY, loadLastCountry, saveLastCountry,
 } from './cityRushRecords.ts';
 
 const T0 = 1_700_000_000_000;
@@ -134,7 +134,7 @@ test('a timed run of any length resumes with its own deadline', () => {
   assert.equal(back.startedAt, T0);
 });
 
-test('the chosen mode is remembered; Extended until one is chosen; nonsense is ignored', () => {
+test('the chosen mode is remembered; Classic until one is chosen; nonsense is ignored', () => {
   const s = new MemoryStorage();
   assert.equal(loadChoice(s), 600);
   saveChoice(180, s);
@@ -144,4 +144,24 @@ test('the chosen mode is remembered; Extended until one is chosen; nonsense is i
   s.setItem(CHOICE_KEY, '999');
   assert.equal(loadChoice(s), 600);
   assert.equal(loadChoice(null), 600);
+});
+
+test('a 5- or 20-minute choice saved before v1.2 opens on Classic; its records are not touched', () => {
+  const s = new MemoryStorage();
+  for (const old of ['300', '1200']) { s.setItem(CHOICE_KEY, old); assert.equal(loadChoice(s), 600); }
+  const store = { [timedKey('CAN', 1_200_000, 'v1')]: { country: 'CAN', durationMs: 1_200_000, version: 'v1', total: 10, runs: 2, best: 5, bestCities: 1, bestAt: '', latest: 5, latestCities: 1, latestAt: '', history: [5, 4] } };
+  saveTimedStore(store, s);
+  s.setItem(CHOICE_KEY, '1200');
+  loadChoice(s);
+  assert.deepEqual(loadTimedStore(s), store);
+});
+
+test('the last country chosen is remembered for the next visit; anything else is ignored', () => {
+  const s = new MemoryStorage();
+  assert.equal(loadLastCountry(s), null);
+  saveLastCountry('CAN', s);
+  assert.equal(loadLastCountry(s), 'CAN');
+  s.setItem(COUNTRY_KEY, '<script>');
+  assert.equal(loadLastCountry(s), null);
+  assert.equal(loadLastCountry(null), null);
 });

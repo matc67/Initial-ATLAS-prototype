@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import type { Playable } from '../game/playable';
 import { formatTime, isFirstTry, type Attempt, type NewBests, type Stats } from '../game/scoring';
 import { compareWithBests, isNewRecord, type Comparison, type PersonalBests } from '../game/sprint';
@@ -46,12 +46,14 @@ type Props = {
   countries: Map<string, Playable>; nameOf: (id: string) => string;
   onPlayAgain: () => void; onChange: () => void;
   heading?: string;          // what was played, for the review list ("Countries" by default)
-  changeLabel?: string;      // "Change challenge", or "Back to Canada" for a subdivision Sprint
+  changeLabel?: string;      // "Back to menu", or "Back to Canada" for a subdivision Sprint
   onProgress?: () => void;   // shows the run on the Progress globe (country Sprints)
+  outcome?: ReactNode;       // how the run did against a friend's challenge
+  onChallenge?: () => void;  // opens the share sheet (Challenge a friend)
 };
 
 // The arcade results: the score out of 1,400 (1,000 base + 400 for a perfect streak), how it compares with the player's bests, and an instant replay.
-export function SprintResults({ area, modeLabel, stats, answers, before, bests, countries, nameOf, onPlayAgain, onChange, heading, changeLabel = 'Change challenge', onProgress }: Props) {
+export function SprintResults({ area, modeLabel, stats, answers, before, bests, countries, nameOf, onPlayAgain, onChange, heading, changeLabel = 'Back to menu', onProgress, outcome, onChallenge }: Props) {
   const rows = compareWithBests({ score: stats.score, accuracy: stats.accuracy ?? 0, ms: stats.elapsedMs, streak: stats.longestStreak, mistakes: stats.totalMistakes }, before);
   const [score, ...tiles] = rows;
   const shown = useTween(stats.score, 650, 0);
@@ -69,6 +71,7 @@ export function SprintResults({ area, modeLabel, stats, answers, before, bests, 
       <ScoreBreakdown stats={stats} />
       {score.best !== null && <span className={score.better ? 'delta up' : 'delta'}>{score.better ? `+${score.delta!.toLocaleString()} on your best` : `Best ${score.best.toLocaleString()}`}</span>}
     </div>
+    {outcome}
     <div className="sprint-stats">
       {tiles.map(c => <div key={c.stat} className={c.better ? 'better' : ''}>
         <span>{LABEL[c.stat]}</span>
@@ -76,9 +79,10 @@ export function SprintResults({ area, modeLabel, stats, answers, before, bests, 
         <small>{c.better ? 'New best' : c.best === null ? '—' : `Best ${show(c, c.best)}`}</small>
       </div>)}
     </div>
-    <ReviewList answers={answers} countries={countries} nameOf={nameOf} heading={heading} />
     <button ref={again} className="btn primary big" onClick={onPlayAgain}>Play again <kbd>Enter</kbd></button>
+    {onChallenge && <button className="btn challenge-btn" onClick={onChallenge}><Icon name="share" />Share result</button>}
     <button className="btn" onClick={onChange}>{changeLabel}</button>
+    <ReviewList answers={answers} countries={countries} nameOf={nameOf} heading={heading} />
     {onProgress && <button className="link center" onClick={onProgress}>See this run on the globe in Progress</button>}
     <p className="fine">Personal arcade records, kept in this browser. Each Sprint draws a new random ten, so runs differ in difficulty. Streak bonuses: +50 at 3 in a row, +100 at 5, +250 at 10.</p>
   </div>;

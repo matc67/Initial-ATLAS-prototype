@@ -42,9 +42,9 @@ export function helpTopic(c: HelpContext): HelpTopic {
   return {
     title: `${name} · ${c.country}`,
     rules: [
-      'Type a city and press Enter: it lands on the globe and adds its people to your coverage.',
+      'Type a city and press Enter: it lands on the globe and adds its people to your coverage. Big cities count most.',
       'A name means the largest city of that name. For another, add its region: “Portland, Maine”.',
-      'Coverage is the share of the people in the listed cities, not of the whole country.',
+      'Coverage is the share of the people living in our list of the country’s cities (places of 1,000 or more), not of its whole population.',
       c.mode === 'timed'
         ? 'The clock keeps running while Help is open. Finish shows your results now; Abandon discards the run.'
         : 'No clock: your map is saved as you go. Leave keeps it for later; Finish shows your results.',

@@ -1,6 +1,6 @@
 // Mystery Country screens: the HUD, the country search, the guess history and the results. None of them is given the
 // answer while the puzzle is open, so none can show it.
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { Country } from '../data/countries';
 import type { RosterEntry } from '../data/roster';
 import { formatKm, heatColor, heatOf, historyOf, searchCountries, trendsOf, type MysteryGuess, type MysteryStats } from '../game/mystery';
@@ -26,7 +26,7 @@ export function MysteryHud(p: HudProps) {
       <button className={p.help ? 'icon-btn on' : 'icon-btn'} aria-label="How to play" aria-expanded={p.help} title="How to play" onClick={p.onHelp}><Icon name="help" /></button>
       <button className="icon-btn" data-silent aria-label={p.sound ? 'Mute sounds' : 'Turn sounds on'} aria-pressed={p.sound} onClick={p.onSound}><Icon name={p.sound ? 'sound' : 'mute'} /></button>
       <button className="icon-btn" aria-label={p.held ? 'Resume' : 'Pause'} onClick={() => p.onHold(!p.held)}><Icon name={p.held ? 'play-small' : 'pause'} /></button>
-      <button className="close" aria-label="Leave this mystery" onClick={p.onEnd}>×</button>
+      <button className="btn small ghost exit" aria-label="Exit to menu" onClick={p.onEnd}><Icon name="exit" />Exit</button>
     </div>
     <div className={p.held ? 'hud-readouts three held' : 'hud-readouts three'}>
       <button className="readout guesses" onClick={p.onToggleHistory} aria-expanded={p.historyOpen} aria-label={`Guesses ${stats.guesses}. Show history`}>
@@ -132,6 +132,7 @@ type ResultsProps = {
   first: boolean; record: boolean; best: { guesses: number; ms: number } | null;
   history: HistoryProps;
   onNext: () => void; onBack: () => void;
+  outcome?: ReactNode; onChallenge?: () => void;
 };
 
 // Mystery solved: the country, the numbers, the guesses, and straight on to the next one.
@@ -145,13 +146,15 @@ export function MysteryResults(p: ResultsProps) {
     {p.record && <div className="record">New personal best<span>Your fewest guesses yet{p.best ? `, beating ${p.best.guesses}` : ''}.</span></div>}
     {p.first && <div className="record first">First mystery solved<span>Now try it in fewer guesses.</span></div>}
     {stats.guesses === 1 && <div className="perfect">First guess!<span>Found it without a single clue.</span></div>}
+    {p.outcome}
     <div className="sprint-stats">
       <div><span>Guesses</span><strong>{stats.guesses}</strong><small>{p.best ? `Best ${p.best.guesses}` : '—'}</small></div>
       <div><span>Time</span><strong>{formatTime(stats.elapsedMs)}</strong><small>{p.best ? `Best run ${formatTime(p.best.ms)}` : '—'}</small></div>
       <div className="wide"><span>Closest wrong guess</span><strong>{stats.closest ? formatKm(stats.closest.km) : '—'}</strong><small>{p.closestName ?? 'None: solved first try'}</small></div>
     </div>
     <button ref={next} className="btn primary big" onClick={p.onNext}>Next mystery <kbd>Enter</kbd></button>
-    <button className="btn" onClick={p.onBack}>Back to modes</button>
+    {p.onChallenge && <button className="btn challenge-btn" onClick={p.onChallenge}><Icon name="share" />Share result</button>}
+    <button className="btn" onClick={p.onBack}>Back to menu</button>
     <MysteryHistory {...p.history} />
   </div>;
 }

@@ -30,7 +30,7 @@ test('rounds and mysteries say the clock pauses; a timed City Rush says it does 
   assert.ok(helpTopic({ ...round, mode: 'name' }).rules.some(r => /clock is paused while Help is open/.test(r)));
   assert.ok(helpTopic({ kind: 'mystery' }).rules.some(r => /clock is paused while Help is open/.test(r)));
   const timed = helpTopic({ kind: 'rush', mode: 'timed', durationMs: 600_000, country: 'Canada' });
-  assert.equal(timed.title, 'Extended Rush · Canada');
+  assert.equal(timed.title, 'Classic Rush · Canada');
   assert.ok(timed.rules.some(r => /clock keeps running while Help is open/.test(r)));
   const explorer = helpTopic({ kind: 'rush', mode: 'explorer', durationMs: null, country: 'Canada' });
   assert.equal(explorer.title, 'City Explorer · Canada');

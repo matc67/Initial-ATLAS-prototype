@@ -13,19 +13,21 @@ import {
 import { loadShowRegions, regionsAvailable, regionsShown, rushRegionsOf, saveShowRegions } from '../game/rushRegions';
 import { loadSubdivisionIndex, loadSubdivisions, type SubdivisionIndex } from '../data/subdivisions';
 import {
-  coverageOf, DURATIONS, DURATION_NAMES, durationLabel, rushName, type Duration, elapsedMs, exactPeople, finishRush, formatClock, formatCoverage, formatPeople, guessRush,
+  coverageOf, DEFAULT_DURATION, DURATIONS, DURATION_NAMES, MENU_DURATIONS, inMenu, durationLabel, rushName, type Duration, elapsedMs, exactPeople, finishRush, formatClock, formatCoverage, formatPeople, guessRush,
   isExpired, milestoneCrossed, newRush, pauseRush, remainingMs, resumeRush, type Rush, type RushMode,
 } from '../game/cityRush';
 import {
-  addTimedRun, loadActive, loadChoice, saveChoice, type RushChoice, loadExplorer, loadTimedStore, restoreRun, saveActive, saveExplorer, saveTimedStore, timedKey, toSaved,
+  addTimedRun, loadActive, loadChoice, loadLastCountry, saveLastCountry, saveChoice, type RushChoice, loadExplorer, loadTimedStore, restoreRun, saveActive, saveExplorer, saveTimedStore, timedKey, toSaved,
   withExplorerRun, withoutExplorerRun, type ExplorerStore, type TimedResult,
 } from '../game/cityRushRecords';
 import type { LngLat } from '../game/geo';
 import { searchCountries } from '../game/mystery';
-import { challengeUrl, shareText } from '../game/share';
+import { challengeLink, comparable as isComparable, type Challenge } from '../game/challengeLink';
 import type { GlobeView, RushPoint } from '../map/GlobeView';
 import { Burst } from './Results';
-import { renderShareImage } from './shareImage';
+import { ChallengeOutcome, ShareSheet } from './Challenge';
+import { ExitConfirm } from './ExitConfirm';
+import { renderShareCard } from './shareCard';
 import { Flag, Icon, reducedMotion, useTween } from './ui';
 
 export type RushPhase = 'setup' | 'playing' | 'done';
@@ -41,7 +43,8 @@ type Props = {
   globe: GlobeView | null;
   countries: Map<string, Country>;
   shapeOf: (id: string) => GeoJSON.Geometry | null;
-  start: { country: string | null; key: number };
+  start: { country: string | null; key: number; vs?: Challenge | null };
+  landShapes: () => GeoJSON.Geometry[];   // every country, for the share card's globe
   audio: AudioManager; sound: boolean; onSound: () => void;
   help: boolean; onHelp: (c: { mode: RushMode; durationMs: number | null; country: string }) => void;
   handlers: MutableRefObject<RushHandlers>;
@@ -76,6 +79,8 @@ export default function CityRush(p: Props) {
   const [choice, setChoiceState] = useState<RushChoice>(loadChoice);
   const setChoice = (c: RushChoice) => { setChoiceState(c); saveChoice(c); };
   const mode: RushMode = choice === 'explorer' ? 'explorer' : 'timed';
+  // The menu: Quick, Classic and City Explorer, plus an older length (5 or 20 minutes) only when a challenge asks for it.
+  const modeChoices: RushChoice[] = [...MENU_DURATIONS, ...(choice !== 'explorer' && !inMenu(choice) ? [choice] : []), 'explorer'];
   const [data, setDataState] = useState<Loaded | null>(null);
   const dataRef = useRef<Loaded | null>(null);
   const setData = (d: Loaded | null) => { dataRef.current = d; setDataState(d); };
@@ -102,8 +107,13 @@ export default function CityRush(p: Props) {
   const [subIndex, setSubIndex] = useState<SubdivisionIndex | null>(null);
   const [showRegions, setShowRegionsState] = useState(loadShowRegions);
   const setShowRegions = (on: boolean) => { setShowRegionsState(on); saveShowRegions(on); };
-  const [shareNote, setShareNote] = useState('');
-  const [shareFallback, setShareFallback] = useState('');
+  // A friend's challenge (a link): its country and length are preselected and its target shown, until another country
+  // is chosen. Never written anywhere.
+  const rushVs = (c: Challenge | null | undefined) => (c?.kind === 'rush' && c.target !== null ? c : null);
+  const [vs, setVs] = useState(() => rushVs(p.start.vs));
+  const [sharing, setSharing] = useState(false);
+  // Set when a timed run ran out while the page was closed: its results say so.
+  const [endedAway, setEndedAway] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const fxKey = useRef(0);
 
@@ -133,12 +143,13 @@ export default function CityRush(p: Props) {
         const d = prepare(f);
         setData(d);
         const r = restoreRun(a, d.book.reachable, f.version, Date.now());
-        if (isExpired(r, Date.now())) finish(r, d);
+        if (isExpired(r, Date.now())) { setEndedAway(true); finish(r, d); }
         else { commit(r); setWelcome('Welcome back. The clock kept running while you were away.'); }
       }, () => { if (live) { saveActive(null); setDataFailed(true); } });
       return () => { live = false; };
     }
-    if (!p.start.country && explorerRef.current.last) setCountry(explorerRef.current.last);
+    if (vs) setChoiceState(vs.durationS === null ? 'explorer' : (vs.durationS as Duration));
+    if (!p.start.country) { const last = loadLastCountry() ?? explorerRef.current.last; if (last) setCountry(last); }
   }, []);
   // A new request from the Play panel or a link while City Rush is already open: back to setup on that country.
   const firstStart = useRef(p.start.key);
@@ -147,6 +158,9 @@ export default function CityRush(p: Props) {
     commit(null);
     setResult(null);
     if (p.start.country) setCountry(p.start.country);
+    const c = rushVs(p.start.vs);
+    setVs(c);
+    if (c) setChoiceState(c.durationS === null ? 'explorer' : (c.durationS as Duration));
   }, [p.start.key]);
 
   // The chosen country's cities: fetched once (cached), then the globe frames it.
@@ -238,6 +252,7 @@ export default function CityRush(p: Props) {
   function chooseCountry(id: string) {
     const c = countries.get(id), e = index?.countries[id];
     setCountry(id);
+    saveLastCountry(id);
     setResult(null);
     setNote(!index || e?.playable ? '' : `${c?.name ?? id} has ${e ? plural(e.findable, 'city', 'cities') : 'no cities'} in our data, too few to play yet.`);
   }
@@ -258,6 +273,7 @@ export default function CityRush(p: Props) {
       r = as === 'explorer' ? newRush(country, data.file.version, 'explorer', now) : newRush(country, data.file.version, 'timed', now, as);
       if (as === 'explorer' && fresh) setExplorer(withoutExplorerRun(explorerRef.current, country));
     }
+    saveLastCountry(country);
     commit(r);
     setResult(null);
     setLesson(null);
@@ -267,8 +283,8 @@ export default function CityRush(p: Props) {
     setWelcome('');
     setText('');
     setConfirm(null);
-    setShareNote('');
-    setShareFallback('');
+    setSharing(false);
+    setEndedAway(false);
     persist(r);
     globe?.frame(data.file.frame.center, data.file.frame.radiusKm);
     requestAnimationFrame(() => inputRef.current?.focus());
@@ -313,18 +329,31 @@ export default function CityRush(p: Props) {
     }
     commit(done);
     setConfirm(null);
+    setAsking(false);
     setText('');
     if (d) globe?.frame(d.file.frame.center, d.file.frame.radiusKm);
   }
 
   // Abandons a timed run: no record, no learning, back to the country. (City Explorer keeps its map until reset.)
-  function abandon() {
+  // Exit: back to the game menu, never to results. City Explorer keeps its map. A timed run with cities named asks first,
+  // then is abandoned: no score saved, no Cities You Missed, nothing recorded. With none named there is nothing to lose.
+  const [asking, setAsking] = useState(false);
+  function exitPressed() {
     const r = rushRef.current;
     if (!r || r.phase !== 'playing') return;
-    if (confirm !== 'abandon') { setConfirm('abandon'); setTimeout(() => setConfirm(c => (c === 'abandon' ? null : c)), 4000); return; }
-    if (r.mode === 'timed') saveActive(null);
-    else persist(r);
-    exitToSetup();
+    if (r.mode === 'explorer') { persist(pauseRush(r, Date.now())); leaveToMenu(); return; }
+    if (!r.found.length) { leaveToMenu(); return; }
+    setAsking(true);
+  }
+  function leaveToMenu() {
+    const r = rushRef.current;
+    if (r?.mode === 'timed' && r.phase === 'playing') saveActive(null);
+    setAsking(false);
+    commit(null);
+    setResult(null);
+    setLesson(null);
+    setConfirm(null);
+    p.onExit();
   }
 
   function submit(e: FormEvent) {
@@ -406,8 +435,7 @@ export default function CityRush(p: Props) {
     setLesson(null);
     setFeedback(null);
     setConfirm(null);
-    setShareNote('');
-    setShareFallback('');
+    setSharing(false);
   }
   function resetExplorer() {
     if (!country) return;
@@ -415,50 +443,22 @@ export default function CityRush(p: Props) {
     setExplorer(withoutExplorerRun(explorerRef.current, country));
     exitToSetup();
   }
-  const shareInput = () => {
-    const r = rushRef.current!;
-    return {
-      countryName: target?.name ?? r.country, iso2: target?.iso2 ?? '', mode: r.mode, count: r.found.length,
-      coverage: dataRef.current ? coverageOf(peopleOf(dataRef.current.book, r.found), dataRef.current.book.total) : 0,
-      durationMs: r.durationMs, elapsedMs: elapsedMs(r, Date.now()), url: challengeUrl(location.origin, import.meta.env.BASE_URL, r.country),
-    };
+  // The result card: the country on the globe with every city found, and the numbers of this run.
+  async function makeCard() {
+    const r = rushRef.current!, d = dataRef.current!, t = countries.get(r.country)!;
+    const shape = p.shapeOf(r.country), found = r.found.flatMap(id => { const c = d.book.cities.get(id); return c ? [[c.lng, c.lat] as LngLat] : []; });
+    const dot = found.length > 800 ? 1.4 : found.length > 200 ? 1.9 : 2.6;
+    return renderShareCard(
+      { kind: 'rush', durationMs: r.durationMs, place: t.name, iso2: t.iso2, coverage: coverageOf(peopleOf(d.book, r.found), d.book.total), people: peopleOf(d.book, r.found), cities: r.found.length, elapsedMs: elapsedMs(r, Date.now()) },
+      { center: d.file.frame.center, radiusKm: d.file.frame.radiusKm, land: p.landShapes(), shapes: shape ? [{ geometry: shape, fill: '#1f8f86' }] : [], points: found.map(at => ({ at, color: '#ffcf5c', r: dot })) },
+      location.host);
+  }
+  const shareLink = () => {
+    const r = rushRef.current!, d = dataRef.current!;
+    return challengeLink(location.origin, import.meta.env.BASE_URL, { kind: 'rush', country: r.country, durationS: r.durationMs === null ? null : r.durationMs / 1000, target: Math.round(coverageOf(peopleOf(d.book, r.found), d.book.total) * 10) / 10, version: d.file.version });
   };
-  async function copyShare() {
-    const t = shareText(shareInput());
-    try { await navigator.clipboard.writeText(t); setShareNote('Copied. Paste it anywhere.'); setShareFallback(''); }
-    catch { setShareFallback(t); setShareNote('Copy the text below.'); }
-  }
-  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-  async function webShare() {
-    try { await navigator.share({ title: `ATLAS · ${rushName(rushRef.current?.durationMs ?? null)}`, text: shareText(shareInput()) }); }
-    catch (err) { if ((err as Error).name !== 'AbortError') copyShare(); }
-  }
-  async function shareImage() {
-    const r = rushRef.current;
-    if (!r || !data) return;
-    setShareNote('Drawing your map…');
-    try {
-      const s = shareInput();
-      const blob = await renderShareImage({
-        title: rushName(r.durationMs).toUpperCase(), countryName: s.countryName,
-        big: formatCoverage(s.coverage), label: 'city population coverage',
-        detail: `${plural(s.count, 'city', 'cities')} · ${r.mode === 'timed' ? durationLabel(r.durationMs!) : `${formatClock(s.elapsedMs)} exploring`}`,
-        site: location.host, shape: p.shapeOf(r.country), frame: data.file.frame, cities: points.filter(pt => !pt.missed).map(pt => pt.at),
-      });
-      const file = new File([blob], `atlas-city-rush-${r.country.toLowerCase()}.png`, { type: 'image/png' });
-      // Phones save images through the share sheet (a download lands somewhere hard to find); computers download it.
-      const touch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-      if (touch && navigator.canShare?.({ files: [file] })) {
-        try { await navigator.share({ files: [file], text: shareText(s) }); setShareNote(''); return; }
-        catch (err) { if ((err as Error).name === 'AbortError') { setShareNote(''); return; } }
-      }
-      const url = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement('a'), { href: url, download: file.name });
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      setShareNote('Image saved.');
-    } catch { setShareNote('The image could not be made in this browser. Copy the text instead.'); }
-  }
+  // The challenge applies to this run when it is the same country and length.
+  const vsHere = vs && rush && vs.country === rush.country && vs.durationS === (rush.durationMs === null ? null : rush.durationMs / 1000) ? vs : null;
 
   // ---- Render ----------------------------------------------------------------------------------------------------------------
   const now = Date.now();
@@ -495,7 +495,7 @@ export default function CityRush(p: Props) {
     {phase === 'setup' && <aside className="card panel rush-setup" aria-label="City Rush">
       <div className="card-head">
         <div className="eyebrow">City Rush</div>
-        <button className="close" aria-label="Close City Rush" onClick={p.onExit}>×</button>
+        <button className="btn small ghost back-menu" onClick={p.onExit}><Icon name="back" />Back to menu</button>
       </div>
       <h1 className="with-flag">{target ? <><Flag iso2={target.iso2} size="lg" />{target.name}</> : 'Choose a country'}</h1>
       <CountrySearch countries={countries} index={index} onPick={chooseCountry} />
@@ -503,31 +503,34 @@ export default function CityRush(p: Props) {
       {note && <p className="muted" role="status">{note}</p>}
       {!country && !note && <p className="muted">Search, click a country on the globe, or <button className="link" onClick={randomCountry} disabled={!index}>pick one at random</button>.</p>}
       {target && entry?.playable && <>
-        <p className="rush-facts"><b title={`${exactPeople(entry.population)} people`}>{formatPeople(entry.population)}</b> people in <b>{entry.findable.toLocaleString()}</b> cities <span>· {sourceLine.replace(' in GeoNames', '').toLowerCase()}</span></p>
+        <p className="rush-goal">Name as many cities in {target.name} as you can. Each one adds its people to your coverage.</p>
         <div className="rush-modes" role="radiogroup" aria-label="Game mode">
-          {[...DURATIONS, 'explorer' as const].map(c => {
+          {modeChoices.map(c => {
             const best = c === 'explorer' ? undefined : recordFor(c), on = choice === c;
             return <button key={c} role="radio" aria-checked={on} className={on ? 'on' : ''} onClick={() => setChoice(c)}>
-              <span className="label">{c === 'explorer' ? 'City Explorer' : DURATION_NAMES[c]}{c === 600 && <em>Recommended</em>}</span>
-              <span className="time">{c === 'explorer' ? 'No clock' : `${c / 60} min`}</span>
-              <span className="best">{c === 'explorer' ? (savedCount ? `${savedCount.toLocaleString()} found` : '') : best ? `Best ${formatCoverage(coverageOf(best.best, best.total))}` : ''}</span>
+              <span className="label">{c === 'explorer' ? 'City Explorer' : DURATION_NAMES[c]}{c === DEFAULT_DURATION && <em>Recommended</em>}</span>
+              <span className="time">{c === 'explorer' ? 'Unlimited' : `${c / 60} min`}</span>
+              <span className="mode-best">{c === 'explorer' ? (savedCount ? `${savedCount.toLocaleString()} found, saved` : 'Saves as you go') : best ? `Best ${formatCoverage(coverageOf(best.best, best.total))}` : ''}</span>
             </button>;
           })}
         </div>
-        <p className="muted">{mode === 'timed'
-          ? `Every city you name adds its people. How much of ${target.name}’s city population can you cover in ${durationLabel(choice as number * 1000)}? The clock never pauses.`
-          : `Discover ${target.name} at your own pace. Your map is saved, so you can come back to it.`}</p>
+        {vs && vs.country === country && <p className="challenge-target" role="status"><Icon name="bolt" />Your friend&rsquo;s score: <b>{vs.target!.toFixed(1)}%</b> in {vs.durationS === null ? 'City Explorer' : DURATION_NAMES[vs.durationS as Duration]}. Beat it.</p>}
         {dataFailed && <p className="muted">These cities could not load. Check your connection and choose the country again.</p>}
-        {mode === 'explorer' && savedCount > 0
-          ? <>
-            <button className="btn primary" autoFocus disabled={!data || data.file.country !== country} onClick={() => begin()}>Continue · {plural(savedCount, 'city', 'cities')} found</button>
-            <button className="btn" onClick={() => begin({ fresh: true })}>Start a clean map</button>
-          </>
-          : <button className="btn primary" autoFocus disabled={!data || data.file.country !== country} onClick={() => begin()}>{!data || data.file.country !== country ? 'Loading cities…' : `Start ${choice === 'explorer' ? 'exploring' : DURATION_NAMES[choice]}`}</button>}
+        <button className="btn primary" autoFocus disabled={!data || data.file.country !== country} onClick={() => begin()}>{!data || data.file.country !== country ? 'Loading cities…'
+          : mode === 'explorer' ? (savedCount > 0 ? `Continue exploring · ${plural(savedCount, 'city', 'cities')}` : 'Start exploring') : `Start ${DURATION_NAMES[choice as Duration]}`}</button>
+        {mode === 'explorer' && savedCount > 0 && <button className="link center" onClick={() => begin({ fresh: true })}>Start a clean map instead</button>}
         {regionToggle}
-        <button className="link center" onClick={randomCountry}>Another country at random</button>
       </>}
-      <p className="fine">Type a city and press Enter: it lands on the globe and adds its people. A name means the largest city of that name; for another, add its region (“Portland, Maine”). Coverage is the share of the people in these cities, not of the whole country. Data: GeoNames (CC BY 4.0).</p>
+      <details className="how-scoring">
+        <summary>How scoring works</summary>
+        <ul>
+          <li>Every city you name adds its people to your score, so big cities count most: one capital can be worth hundreds of villages.</li>
+          <li>Coverage is the share of the people living in our list of {target ? `${target.name}’s` : 'the country’s'} cities (places of 1,000 or more), not of the whole national population, which also counts people outside them.</li>
+          <li>A name means the largest city of that name; for another, add its region (“Portland, Maine”). Districts inside a city count toward that city.</li>
+          <li>Quick and Classic rushes run on a clock that never pauses and keep your best score. City Explorer has no clock: your map is saved and you can keep adding to it.</li>
+        </ul>
+        <p className="fine">City data: GeoNames (CC BY 4.0).</p>
+      </details>
     </aside>}
 
     {phase === 'playing' && rush && target && <div className="rush-top">
@@ -536,18 +539,13 @@ export default function CityRush(p: Props) {
         <div className="hud-top">
           <span className="hud-area"><Flag iso2={target.iso2} /><span className="mode-name">{rushName(rush.durationMs)} · </span><span className="country-name">{target.name}</span></span>
           <span className="spacer" />
+          <span className="hud-tools">
           <button className={listOpen ? 'icon-btn on' : 'icon-btn'} aria-label={listOpen ? 'Hide your cities' : 'Show your cities'} aria-pressed={listOpen} onClick={() => setListOpen(!listOpen)}><Icon name="list" /></button>
           {regionsOk && <button className={showRegions ? 'icon-btn on' : 'icon-btn'} aria-label={showRegions ? 'Hide regions' : 'Show regions'} aria-pressed={showRegions} title="Show regions" onClick={() => setShowRegions(!showRegions)}><Icon name="layers" /></button>}
           <button className={p.help ? 'icon-btn on' : 'icon-btn'} aria-label="How to play" aria-expanded={p.help} title="How to play" onClick={() => p.onHelp({ mode: rush.mode, durationMs: rush.mode === 'timed' ? rush.durationMs : null, country: target.name })}><Icon name="help" /></button>
           <button className="icon-btn sound" data-silent aria-label={p.sound ? 'Mute sounds' : 'Turn sounds on'} aria-pressed={p.sound} onClick={p.onSound}><Icon name={p.sound ? 'sound' : 'mute'} /></button>
-          {confirm === 'abandon'
-            ? <><button className="btn small danger" onClick={abandon}>Discard run</button><button className="btn small" onClick={() => setConfirm(null)}>Keep playing</button></>
-            : <>
-              {rush.mode === 'timed'
-                ? <button className="btn small ghost" onClick={abandon} title="Discard this run: no score is saved">Abandon</button>
-                : <button className="btn small ghost" onClick={() => { const r = rushRef.current; if (r) persist(pauseRush(r, Date.now())); exitToSetup(); }} title="Your map is saved: carry on later">Leave</button>}
-              <button className={confirm === 'end' ? 'btn small danger' : 'btn small'} onClick={endPressed} title={rush.mode === 'timed' ? 'End now and see your results' : 'See your results'}>{rush.mode === 'timed' ? (confirm === 'end' ? 'Finish now?' : 'Finish') : 'Finish'}</button>
-            </>}
+          </span>
+          <button className="btn small ghost exit" onClick={exitPressed} title={rush.mode === 'timed' ? 'Leave this run (no score is saved)' : 'Back to the menu (your map is saved)'}><Icon name="exit" />Exit</button>
         </div>
         <div className="hud-readouts rush-readouts">
           <RushClock rush={rush} />
@@ -560,9 +558,13 @@ export default function CityRush(p: Props) {
         <div className="rush-progress">
           <div className="bar" role="progressbar" aria-label="City population coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(coverage * 10) / 10} aria-valuetext={`${exactPeople(people)} of ${exactPeople(total)} people`}>
             <i style={{ width: `${shownCoverage}%` }} />
-            {rush.mode === 'timed' && bestCoverage !== null && bestCoverage > 0 && <b className="best" style={{ left: `${bestCoverage}%` }} title={`Your best: ${formatCoverage(bestCoverage)}`} />}
+            {rush.mode === 'timed' && bestCoverage !== null && bestCoverage > 0 && <b className="bar-mark" style={{ left: `${bestCoverage}%` }} title={`Your best: ${formatCoverage(bestCoverage)}`} />}
+            {vsHere && <b className="bar-mark vs" style={{ left: `${Math.min(100, vsHere.target!)}%` }} title={`Your friend: ${formatCoverage(vsHere.target!)}`} />}
           </div>
-          <span title={`${exactPeople(people)} of ${exactPeople(total)} people`}><b>{formatPeople(shownPeople)}</b> of {formatPeople(total)} people{rush.mode === 'timed' && bestCoverage !== null ? ` · best ${formatCoverage(bestCoverage)}` : ''}</span>
+          <div className="progress-line">
+            <span title={`${exactPeople(people)} of ${exactPeople(total)} people`}><b>{formatPeople(shownPeople)}</b> of {formatPeople(total)} people{rush.mode === 'timed' && bestCoverage !== null ? ` · best ${formatCoverage(bestCoverage)}` : ''}</span>
+            <button className={confirm === 'end' ? 'btn small danger finish' : 'btn small finish'} onClick={endPressed} title={rush.mode === 'timed' ? 'End now and see your results' : 'See your results'}>{confirm === 'end' ? 'Finish now?' : 'Finish'}</button>
+          </div>
         </div>
         <div className={`rush-msg ${feedback?.kind ?? ''}`} aria-live="polite" key={`m${feedback?.key ?? 0}`}>
           {feedback ? <><b aria-hidden="true">{feedback.kind === 'new' ? '✓' : feedback.kind === 'learned' ? '★' : feedback.kind === 'duplicate' ? '↺' : '✕'}</b>{feedback.text}</>
@@ -581,6 +583,9 @@ export default function CityRush(p: Props) {
         </div>}
     </div>}
 
+    {asking && rush && <ExitConfirm title={`Exit this ${rushName(rush.durationMs)}?`}
+      detail={`The run will be abandoned: no score is saved, and the cities you missed stay hidden. The clock keeps running while you decide.`}
+      onStay={() => { setAsking(false); requestAnimationFrame(() => inputRef.current?.focus()); }} onExit={leaveToMenu} />}
     {phase === 'playing' && listOpen && data && <aside className="card panel rush-list" aria-label="Your cities">
       <div className="card-head"><div className="eyebrow">Your cities · {count.toLocaleString()}</div><button className="close" aria-label="Hide your cities" onClick={() => setListOpen(false)}>×</button></div>
       {count ? playingList : <p className="muted">Every city you name lands here and on the globe, with the people it adds.</p>}
@@ -592,10 +597,23 @@ export default function CityRush(p: Props) {
         <span><b>{formatCoverage(coverage)}</b> · {target.name}</span>
         <button className="btn small" aria-expanded={!peek} onClick={() => setPeek(!peek)}>{peek ? 'Show results' : 'Show map'}</button>
       </div>
-      <div className="eyebrow">{rush.mode === 'timed' ? `${rushName(rush.durationMs)} · ${durationLabel(rush.durationMs!)}` : 'City Explorer'}</div>
+      <div className="card-head">
+        <div className="eyebrow">{rush.mode === 'timed' ? `${rushName(rush.durationMs)} · ${durationLabel(rush.durationMs!)}` : 'City Explorer'}</div>
+        <button className="btn small ghost back-menu" onClick={p.onExit}><Icon name="back" />Back to menu</button>
+      </div>
       <h1 className="with-flag"><Flag iso2={target.iso2} size="lg" />{target.name}</h1>
       {result?.newBest && <div className="record"><Burst />New personal best<span>Up from {formatCoverage(coverageOf(result.before ?? 0, total))}.</span></div>}
+      {endedAway && <p className="away-note" role="status">Time ran out while you were away. Your run was saved as it stood, with every city you named.</p>}
       <div className="sprint-score rush-score"><strong>{formatCoverage(coverage)}</strong><span>city population coverage</span></div>
+      {vsHere && <ChallengeOutcome challenge={vsHere} result={Math.round(coverage * 10) / 10} comparable={isComparable(vsHere, data.file.version)} format={n => `${n.toFixed(1)}%`} />}
+      {rush.mode === 'timed'
+        ? <button className="btn primary" autoFocus onClick={() => begin({ as: rush.durationMs! / 1000 as Duration })}>Play again · {rushName(rush.durationMs)}</button>
+        : <button className="btn primary" autoFocus onClick={() => begin({ as: 'explorer' })}>Keep exploring</button>}
+      <div className="result-actions">
+        <button className="btn challenge-btn" onClick={() => setSharing(true)}><Icon name="share" />Share result</button>
+        <button className="btn" onClick={exitToSetup}>Change country or mode</button>
+      </div>
+      {sharing && <ShareSheet make={makeCard} link={shareLink()} fileName={`atlas-${rush.mode === 'timed' ? 'city-rush' : 'city-explorer'}-${rush.country.toLowerCase()}.jpg`} onClose={() => setSharing(false)} />}
       {lesson?.improvement && <Progress i={lesson.improvement} />}
       <section className="rush-missed" aria-label="Cities you missed">
         <div className="eyebrow">Cities you missed</div>
@@ -613,21 +631,6 @@ export default function CityRush(p: Props) {
           </>
           : <p className="muted">You named every city on our list for {target.name}. Nothing left to learn here.</p>}
       </section>
-      {rush.mode === 'timed'
-        ? <button className="btn primary" autoFocus onClick={() => begin({ as: rush.durationMs! / 1000 as Duration })}>Play again · {rushName(rush.durationMs)}</button>
-        : <button className="btn primary" autoFocus onClick={() => begin({ as: 'explorer' })}>Keep exploring</button>}
-      <div className="rush-lengths" role="group" aria-label="Play again with another length">
-        <span>Or</span>
-        {DURATIONS.filter(d => d * 1000 !== rush.durationMs).map(d => <button key={d} className="chip" onClick={() => begin({ as: d })}>{d / 60} min</button>)}
-        {rush.mode === 'timed' && <button className="chip" onClick={() => begin({ as: 'explorer' })}>Explorer</button>}
-      </div>
-      <div className="share-row">
-        {canShare && <button className="btn small" onClick={webShare}><Icon name="share" />Share</button>}
-        <button className="btn small" onClick={copyShare}>Copy result</button>
-        <button className="btn small" onClick={shareImage}>Save image</button>
-      </div>
-      {shareNote && <p className="fine" role="status">{shareNote}</p>}
-      {shareFallback && <textarea className="share-text" readOnly value={shareFallback} rows={8} onFocus={e => e.currentTarget.select()} />}
       <dl className="facts">
         <div><dt>Population discovered</dt><dd title={`${exactPeople(people)} of ${exactPeople(total)} people`}>{formatPeople(people)} <span className="muted">of {formatPeople(total)}</span></dd></div>
         <div><dt>Cities discovered</dt><dd>{count.toLocaleString()} <span className="muted">of {findable.toLocaleString()}</span></dd></div>
@@ -645,7 +648,7 @@ export default function CityRush(p: Props) {
         {list(true)}
       </details>}
       {regionToggle}
-      <button className="btn" onClick={exitToSetup}>Choose another country</button>
+      <button className="link center" onClick={p.onExit}>Back to menu</button>
       {rush.mode === 'explorer' && <button className={confirm === 'reset' ? 'btn danger' : 'btn'} onClick={resetExplorer}>{confirm === 'reset' ? 'Reset: clear this map for good?' : 'Reset progress'}</button>}
       <p className="fine">Coverage is the share of the people in {target.name}’s cities in our list ({sourceLine}, CC BY 4.0), not of its national population. Districts listed inside a city count toward that city.</p>
     </aside>}

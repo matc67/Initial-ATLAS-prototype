@@ -2,7 +2,7 @@
 // more guesses, abandoned runs leave no record, completed runs are recorded exactly once, City Explorer maps persist per
 // country, and records from another data version are kept but never compared.
 import { expect, test, type Page } from '@playwright/test';
-import { DESKTOP, clockMs, contextFor, finishRush, openRush, readoutValue, sayCity, startRush, storage } from './helpers.ts';
+import { DESKTOP, clockMs, contextFor, exitGame, finishRush, openRush, readoutValue, sayCity, startRush, storage } from './helpers.ts';
 
 const BESTS = 'atlas-city-rush-bests-v2', ACTIVE = 'atlas-city-rush-active-v2', EXPLORER = 'atlas-city-rush-explorer-v2', LEARNING = 'atlas-city-rush-learning-v1';
 type TimedRecord = { runs: number; best: number; version: string; country: string };
@@ -15,7 +15,7 @@ test.describe('City Rush persistence', () => {
   test.afterEach(async () => { await page.context().close(); });
 
   test('a timed run survives a refresh, and its clock does not restart', async () => {
-    await startRush(page, 'Marathon');
+    await startRush(page, 'Classic');
     await sayCity(page, 'Toronto');
     const before = await timeLeft(page);
     await page.waitForTimeout(3000);
@@ -60,9 +60,8 @@ test.describe('City Rush persistence', () => {
   test('an abandoned run leaves no record', async () => {
     await startRush(page, 'Quick');
     await sayCity(page, 'Toronto');
-    await page.click('.rush-hud button:has-text("Abandon")');
-    await page.click('.rush-hud button:has-text("Discard run")');
-    await expect(page.locator('.rush-setup')).toBeVisible();
+    await exitGame(page, true);
+    await expect(page.locator('.challenge.sprint:not([disabled])')).toBeVisible();
     expect(await records(page)).toEqual({});
     expect(await storage(page, LEARNING)).toBeNull();
     expect(await storage(page, ACTIVE)).toBeNull();
@@ -89,13 +88,13 @@ test.describe('City Rush persistence', () => {
     await expect(page.locator('.challenge.sprint:not([disabled])')).toBeVisible({ timeout: 60_000 });
     await startRush(page, 'City Explorer', 'CAN');
     expect(await readoutValue(page, 'Cities')).toBe('1');
-    await page.click('.rush-hud button:has-text("Leave")');
+    await exitGame(page, false);
 
     await startRush(page, 'City Explorer', 'USA');
     expect(await readoutValue(page, 'Cities'), 'another country starts empty').toBe('0');
     await sayCity(page, 'Chicago');
     await sayCity(page, 'Houston');
-    await page.click('.rush-hud button:has-text("Leave")');
+    await exitGame(page, false);
 
     const store = await storage(page, EXPLORER);
     expect(Object.keys(store.countries).sort()).toEqual(['CAN', 'USA']);

@@ -12,22 +12,22 @@ type Scenario = { start: (p: Page) => Promise<void>; essentials: string[]; basel
 const HELP = '.hud [aria-label="How to play"]';
 const SCENARIOS: { [name: string]: Scenario } = {
   'game menu': { start: home, essentials: ['.challenge.sprint'] },
-  'Find it': { start: p => startRound(p, 'Find it'), essentials: ['.hud', '.hud-name', '.hud-top .close', HELP], baseline: [71, 77, 81, 83, 82, 74, 82, 89], touchWithin: '.hud' },
-  'Name it': { start: p => startRound(p, 'Name it'), essentials: ['.hud', '.answer-bar input', '.hud-top .close', HELP], baseline: [61, 69, 76, 78, 79, 68, 79, 87], touchWithin: '.hud' },
-  'Flags': { start: p => startRound(p, 'Flags'), essentials: ['.hud', '.hud-name', '.hud-top .close', HELP], baseline: [67, 75, 80, 82, 80, 68, 80, 88], touchWithin: '.hud' },
-  'Full challenge': { start: p => startRound(p, 'Find it', 'full'), essentials: ['.hud', '.hud-name', '.hud-top .close', HELP], baseline: [71, 77, 81, 83, 82, 74, 82, 89], touchWithin: '.hud' },
-  'Mystery': { start: startMystery, essentials: ['.mystery-hud', '.mystery-search input', '.mystery-hud .hud-top .close', HELP], baseline: [71, 76, 81, 83, 84, 66, 81, 87], touchWithin: '.mystery-hud' },
-  'Regions': { start: p => startRegions(p), essentials: ['.hud', '.hud-name', '.hud-top .close', HELP], baseline: [71, 77, 81, 83, 82, 74, 82, 89], touchWithin: '.hud' },
+  'Find it': { start: p => startRound(p, 'Find it'), essentials: ['.hud', '.hud-name', '.hud-top .exit', HELP], baseline: [71, 77, 81, 83, 82, 74, 82, 89], touchWithin: '.hud' },
+  'Name it': { start: p => startRound(p, 'Name it'), essentials: ['.hud', '.answer-bar input', '.hud-top .exit', HELP], baseline: [61, 69, 76, 78, 79, 68, 79, 87], touchWithin: '.hud' },
+  'Flags': { start: p => startRound(p, 'Flags'), essentials: ['.hud', '.hud-name', '.hud-top .exit', HELP], baseline: [67, 75, 80, 82, 80, 68, 80, 88], touchWithin: '.hud' },
+  'Full challenge': { start: p => startRound(p, 'Find it', 'full'), essentials: ['.hud', '.hud-name', '.hud-top .exit', HELP], baseline: [71, 77, 81, 83, 82, 74, 82, 89], touchWithin: '.hud' },
+  'Mystery': { start: startMystery, essentials: ['.mystery-hud', '.mystery-search input', '.mystery-hud .hud-top .exit', HELP], baseline: [71, 76, 81, 83, 84, 66, 81, 87], touchWithin: '.mystery-hud' },
+  'Regions': { start: p => startRegions(p), essentials: ['.hud', '.hud-name', '.hud-top .exit', HELP], baseline: [71, 77, 81, 83, 82, 74, 82, 89], touchWithin: '.hud' },
   'City Rush': {
-    start: async p => { await startRush(p, 'Extended'); for (const c of ['Toronto', 'Montreal', 'Calgary']) await sayCity(p, c); },
-    essentials: ['.rush-bar input', '.rush-hud .readout.time', '.rush-hud', '.rush-hud .hud-top .btn.small:not(.ghost)', HELP], baseline: [62, 68, 74, 76, 79, 60, 79, 84], touchWithin: '.rush-hud',
+    start: async p => { await startRush(p, 'Classic'); for (const c of ['Toronto', 'Montreal', 'Calgary']) await sayCity(p, c); },
+    essentials: ['.rush-bar input', '.rush-hud .readout.time', '.rush-hud', '.rush-hud .finish', '.rush-hud .exit', HELP], baseline: [62, 68, 74, 76, 79, 60, 79, 84], touchWithin: '.rush-hud',
   },
   'City Explorer': {
     start: async p => { await startRush(p, 'City Explorer'); await sayCity(p, 'Ottawa'); },
-    essentials: ['.rush-bar input', '.rush-hud', '.rush-hud .hud-top .btn.ghost', HELP], baseline: [62, 68, 74, 76, 79, 60, 79, 84], touchWithin: '.rush-hud',
+    essentials: ['.rush-bar input', '.rush-hud', '.rush-hud .exit', HELP], baseline: [62, 68, 74, 76, 79, 60, 79, 84], touchWithin: '.rush-hud',
   },
   'City Rush results': {
-    start: async p => { await startRush(p, 'Extended'); for (const c of ['Toronto', 'Montreal']) await sayCity(p, c); await finishRush(p); },
+    start: async p => { await startRush(p, 'Classic'); for (const c of ['Toronto', 'Montreal']) await sayCity(p, c); await finishRush(p); },
     essentials: ['.rush-results'], baseline: [46, 49, 51, 50, 59, 57, 70, 78],
   },
 };

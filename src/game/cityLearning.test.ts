@@ -122,7 +122,7 @@ test('each timed duration keeps its own history; City Explorer its own', () => {
   assert.equal(learningKey('CAN', null), 'CAN:explorer');
 });
 
-test('a history saved before durations is kept as Classic Rush (5 minutes)', () => {
+test('a history saved before durations is kept as the 5-minute history', () => {
   const s = new MemoryStorage();
   const { durationMs: _d, ...old } = lastRunOf(run([3]), book);
   s.setItem(LEARNING_KEY, JSON.stringify({ 'CAN:timed': old }));

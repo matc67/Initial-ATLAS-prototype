@@ -36,7 +36,10 @@ p { margin: 0; }
    the whole game sideways when Help took focus. */
 .app { position: fixed; inset: 0; overflow: hidden; overflow: clip; background: radial-gradient(ellipse at 50% 45%, #0a1d3c 0%, #040c1d 55%, var(--bg) 100%); }
 .starfield { position: absolute; inset: 0; width: 100%; height: 100%; }
-.map { position: absolute; inset: 0; }
+.map { position: absolute; inset: 0; z-index: 0; }
+/* The map is its own stacking layer (z-index 0 above): MapLibre's HTML markers (city names, ocean labels, rings) carry
+   z-indexes of their own, and without this layer those would rise above the interface panels, which sit after the map
+   with z-index auto. Inside it they still order among themselves; outside it, every panel, sheet and dialog is above. */
 .maplibregl-map { font-family: inherit; }
 .maplibregl-canvas { outline: none; }
 /* Atmosphere and sphere shading are positioned by GlobeView.placeFx to match the globe's size and centre. */
@@ -642,9 +645,11 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
 .rush-progress { display: grid; gap: 4px; }
 .rush-progress .bar { position: relative; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.07); overflow: visible; }
 .rush-progress .bar i { position: absolute; inset: 0 auto 0 0; max-width: 100%; border-radius: 3px; background: linear-gradient(90deg, #d99a2b, var(--gold)); box-shadow: 0 0 8px rgba(255, 207, 92, 0.45); }
-.rush-progress .bar .best { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--ink-2); }
-.rush-progress > span { font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rush-progress > span b { color: var(--ink); font-weight: 600; }
+/* Markers on the coverage bar: the player's best (a thin tick), a friend's target (gold). Their own class: the general
+   .best panel style (a padded box) once applied here and drew a grey square over the bar. */
+.rush-progress .bar .bar-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--ink-2); }
+.rush-progress .progress-line > span { min-width: 0; font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rush-progress .progress-line > span b { color: var(--ink); font-weight: 600; }
 .rush-msg { display: flex; align-items: center; gap: 7px; min-height: 22px; padding-top: 6px; border-top: 1px solid var(--panel-line); font-size: 13px; color: var(--ink-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; animation: rush-msg 0.25s ease-out; }
 .rush-msg b { font-size: 14px; }
 .rush-msg.new { color: var(--ink); }
@@ -687,7 +692,8 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
 .rush-missed b { font-size: 12.5px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .rush-missed .fine { margin: 0; }
 .rush-progress-summary dd.up { color: var(--good); }
-.rush-region-label { pointer-events: none; font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(236, 244, 255, 0.62); text-shadow: 0 1px 2px rgba(3, 10, 24, 0.9), 0 0 6px rgba(3, 10, 24, 0.6); white-space: nowrap; z-index: 0; }
+/* Region names: bright, with a dark halo that reads on any country colour (gold, teal, purple…) and over relief. */
+.rush-region-label { pointer-events: none; font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(246, 250, 255, 0.92); text-shadow: 0 0 2px rgba(3, 10, 24, 0.95), 0 1px 3px rgba(3, 10, 24, 0.95), 0 0 8px rgba(3, 10, 24, 0.7); white-space: nowrap; z-index: 0; }
 .rush-label { z-index: 1; }
 .rush-label.missed, .rush-label.pinned.missed { color: #ffb4a6; }
 .rush-list { width: 300px; }
@@ -738,8 +744,8 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
 .rush-modes .label em { font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
 .rush-modes .time { grid-area: time; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ink-3); }
 .rush-modes button.on .time { color: var(--ink-2); }
-.rush-modes .best { grid-area: best; font-size: 11.5px; color: var(--ink-3); }
-.rush-modes .best:empty { display: none; }
+.rush-modes .mode-best { grid-area: best; font-size: 11.5px; color: var(--ink-3); }
+.rush-modes .mode-best:empty { display: none; }
 /* Results: play again at another length, one tap. */
 .rush-lengths { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-3); }
 .rush-lengths .chip { border: 1px solid var(--panel-line); background: none; color: var(--ink-2); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; }
@@ -847,3 +853,65 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
 /* A newer release replaced this page's data (data/release.ts). */
 .update-note { position: fixed; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%); z-index: 20; display: grid; gap: 10px; width: min(420px, calc(100vw - 24px)); padding: 14px 16px; border-radius: 12px; background: rgba(8, 18, 36, 0.97); border: 1px solid var(--gold); font-size: 14px; line-height: 1.45; text-align: center; }
 .update-note p { margin: 0; }
+
+/* ---- Challenge a friend ------------------------------------------------------------------------------------------------
+   The share sheet (the result card and the ways to send it), the invitation a challenge link opens, and the result
+   against a friend's score. */
+.sheet-backdrop { position: fixed; inset: 0; z-index: 15; display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom)); background: rgba(2, 6, 16, 0.62); animation: fade-in 0.18s ease-out; }
+@keyframes fade-in { from { opacity: 0; } }
+.share-sheet { width: min(560px, 100%); max-height: 100%; overflow-y: auto; background: rgba(8, 18, 36, 0.97); }
+.share-preview { border-radius: 12px; overflow: hidden; border: 1px solid var(--panel-line); background: #030914; aspect-ratio: 1200 / 630; display: grid; place-items: center; }
+.share-preview img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.share-preview p { margin: 0; padding: 16px; text-align: center; }
+.sheet-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.share-link { width: 100%; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--panel-line-strong); background: rgba(255, 255, 255, 0.04); color: var(--ink); font: inherit; font-size: 13px; }
+.challenge-btn svg { width: 15px; height: 15px; }
+
+.challenge-invite { width: min(420px, 100%); background: rgba(8, 18, 36, 0.97); text-align: center; }
+.challenge-invite .eyebrow { color: var(--gold); }
+.challenge-invite h2 { margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 24px; line-height: 1.2; }
+.invite-goal { margin: 0; font-size: 17px; color: var(--ink); }
+
+.challenge-outcome { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--panel-line); background: rgba(255, 255, 255, 0.03); font-size: 13px; color: var(--ink-2); }
+.challenge-outcome strong { font-family: 'Space Grotesk', sans-serif; font-size: 15px; color: var(--ink); }
+.challenge-outcome.beat { border-color: rgba(74, 222, 128, 0.45); background: rgba(74, 222, 128, 0.07); }
+.challenge-outcome.beat strong { color: #7ee8a6; }
+.challenge-outcome.tied { border-color: rgba(255, 207, 92, 0.45); }
+.challenge-outcome small { color: var(--ink-3); }
+.challenge-target { display: flex; align-items: center; gap: 6px; margin: 0; padding: 8px 10px; border-radius: 10px; background: rgba(255, 207, 92, 0.08); border: 1px solid rgba(255, 207, 92, 0.3); font-size: 13px; color: var(--ink); }
+.challenge-target svg { width: 14px; height: 14px; color: var(--gold); flex: none; }
+.challenge-target b { color: var(--gold); }
+.rush-progress .bar .bar-mark.vs { background: var(--gold); width: 3px; }
+.how-scoring { font-size: 12.5px; color: var(--ink-2); }
+.how-scoring summary { cursor: pointer; font-weight: 600; color: var(--ink); padding: 4px 0; }
+.how-scoring ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 5px; line-height: 1.45; }
+.away-note { margin: 0; padding: 8px 10px; border-radius: 10px; background: rgba(255, 207, 92, 0.08); border: 1px solid rgba(255, 207, 92, 0.3); font-size: 13px; color: var(--ink); }
+
+/* ---- Navigation (v1.2) -------------------------------------------------------------------------------------------------
+   Every game has an Exit in its panel (back to the menu, asking first when progress would be lost); setup and results have
+   Back to menu. Finish ends a timed City Rush and is kept apart from Exit, by the progress bar. */
+.btn.exit { gap: 5px; padding-left: 9px; padding-right: 10px; }
+.btn.exit svg, .back-menu svg { width: 15px; height: 15px; }
+.back-menu { padding: 6px 10px 6px 6px; gap: 4px; font-size: 12.5px; }
+.hud-tools { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px; border-radius: 10px; background: rgba(255, 255, 255, 0.03); }
+.hud-tools .icon-btn { opacity: 0.8; }
+.hud-tools .icon-btn:hover, .hud-tools .icon-btn.on { opacity: 1; }
+.progress-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.progress-line .finish { padding: 5px 12px; }
+.rush-goal { margin: 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.45; }
+.rush-modes button.on { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); background: rgba(255, 207, 92, 0.07); }
+.result-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.exit-confirm { width: min(400px, 100%); background: rgba(8, 18, 36, 0.97); }
+.exit-confirm h2 { margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 21px; }
+.exit-confirm p { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.5; }
+.exit-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 360px) {
+  .btn.exit { padding: 6px 8px; }
+  .btn.exit svg { display: none; }
+  .result-actions { grid-template-columns: 1fr; }
+}
+/* Touch: Exit and Finish get a 40px target, like the panel's other buttons, without making the panel taller. */
+@media (pointer: coarse) {
+  .hud-top .btn.exit { min-height: 40px; margin: -6px 0; }
+  .progress-line .finish { min-height: 40px; margin: -8px 0; }
+}

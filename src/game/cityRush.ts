@@ -11,13 +11,16 @@
 // same processed list, so it is the share of the dataset's city population, never of the national population.
 export type RushMode = 'timed' | 'explorer';
 // Timed durations, in seconds. Records, bests and Cities You Missed are all kept per duration: a 20-minute run never
-// competes with a 5-minute one. Extended (10 minutes) is the recommended start.
+// competes with a 5-minute one. The menu offers two, Quick (3 minutes) and Classic (10, recommended), with City Explorer;
+// 5 and 20 minutes were offered before v1.2: their records stay, and a challenge link to one still plays it.
 export const DURATIONS = [180, 300, 600, 1200] as const;
 export type Duration = (typeof DURATIONS)[number];
+export const MENU_DURATIONS = [180, 600] as const satisfies readonly Duration[];
 export const DEFAULT_DURATION: Duration = 600;
-export const DURATION_NAMES: { [s in Duration]: string } = { 180: 'Quick Rush', 300: 'Classic Rush', 600: 'Extended Rush', 1200: 'Marathon Rush' };
+export const DURATION_NAMES: { [s in Duration]: string } = { 180: 'Quick Rush', 300: '5-Minute Rush', 600: 'Classic Rush', 1200: '20-Minute Rush' };
+export const inMenu = (d: Duration) => (MENU_DURATIONS as readonly number[]).includes(d);
 export const isDuration = (s: unknown): s is Duration => (DURATIONS as readonly unknown[]).includes(s);
-// The name of a run's mode: "Extended Rush", or "City Explorer" without a clock.
+// The name of a run's mode: "Classic Rush", or "City Explorer" without a clock.
 export const rushName = (durationMs: number | null) =>
   durationMs === null ? 'City Explorer' : DURATION_NAMES[Math.round(durationMs / 1000) as Duration] ?? 'City Rush';
 // Coverage milestones, in percent.

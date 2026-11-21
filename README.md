@@ -14,13 +14,16 @@ browser; there is no login and no server.
   **all 200 countries** or the **Classic 195** (UN members and observers).
 - **Mystery Country**: find a hidden country; each wrong guess is coloured by how close it is. Ranked by fewest
   guesses, then time. A puzzle in progress survives a refresh.
-- **City Rush**: how much of a country's city population can you name? Quick (3 minutes), Classic (5), Extended (10,
-  recommended) or Marathon (20) Rush, or **City Explorer** with no clock and a map saved per country. Every city you name
+- **City Rush**: how much of a country's city population can you name? **Quick Rush** (3 minutes), **Classic Rush**
+  (10, recommended), or **City Explorer** with no clock and a map saved per country. (5- and 20-minute rushes were offered
+  before v1.2: their records are kept, and challenge links to them still play.) Every city you name
   appears on the globe and adds its people; the score is **City Population Coverage**, the share of the people in the
   country's listed cities that you found (not of its national population). Bests and history are kept per country and
-  duration. After every completed run, **Cities You Missed** shows the five largest cities you did not name; name them
+  duration. After every finished run, **Cities You Missed** shows the five largest cities you did not name; name them
   next time and the next ones appear. One-letter typos of longer names are accepted, and region borders are drawn where
-  ATLAS has them. Results can be shared as text, a link (`?rush=CAN`, which never includes the answers) or an image.
+  ATLAS has them. **Exit** (in every game's panel) goes back to the menu: a timed run is abandoned with no score
+  and no answers shown (after one question, if cities were named); City Explorer keeps its map. **Finish** ends a run and
+  shows its results, recorded once.
   194 countries; cities are GeoNames places of 1,000+ people (see `docs/cities.md`).
 - **Regions**: Find the Region and Name the Region for Australia, Brazil, Canada, France, Germany, India, Japan,
   Mexico, Nigeria and the United States, from Explore (or Play → Regions).
@@ -45,6 +48,7 @@ it only separates equally accurate runs. A wrong click never reveals the answer.
 | `npm run preview` | Serves `dist/` locally with Vite, to check a production build |
 | `npm run serve:dist` | Serves `dist/` with the headers in `netlify.toml` (CSP, caching), as Netlify does |
 | `npm run data`, `relief`, `places`, `admin1` | Rebuild the map data in `public/data/` from Natural Earth (only when changing data; needs `data-raw/`) |
+| `npm run share-assets` | Redraw the link-preview image and icons in `public/` (after a change to the share card design) |
 | `npm run cities` | Rebuild the City Rush data in `public/data/cities/` from GeoNames (downloads about 210 MB into `data-raw/geonames/` the first time) |
 | `npm run cities:validate` | Validate the city data and list what changed since the last commit (see `docs/cities.md`) |
 | `npm run cities:verify` | Check the city data rebuilds byte-for-byte from its recorded inputs |
@@ -73,6 +77,18 @@ The release checklist, how to verify a deploy, how data versions work across dep
 
 About 400 KB of JavaScript (gzip; MapLibre is its own file, so it stays cached across releases), the country shapes
 (~760 KB gzip, preloaded with the page), a 930 KB relief image, and flags, region files and City Rush city files (one country at a time, up to ~320 KB gzip) only as they are needed.
+
+## Sharing and challenges
+
+Every results screen has **Challenge a friend**. It draws a result card (1800×945 JPEG, drawn in the browser on a
+canvas from the game's own map data: `src/components/shareCard.ts`), and offers to share it through the phone's share
+sheet with a link, save it, or copy the link. The link opens the same game with the score to beat
+(`src/game/challengeLink.ts`): the mode, the country or area, the length, the target, and the data version. It never
+carries answers, cities named or anything about the player, and a target is never written to anyone's records.
+
+Link previews (what a chat app shows under a link to ATLAS) come from the page's Open Graph tags and
+`public/og-image.jpg`. Preview crawlers do not run JavaScript, so on a static site every link, a challenge link
+included, shows that same branded card; the personal card travels as the attached image instead.
 
 ## Saved data
 

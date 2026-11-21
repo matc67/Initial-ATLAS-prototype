@@ -2,7 +2,7 @@
 // Security Policy is sent and nothing ATLAS does violates it (globe, flags, regions, cities, fonts, the share image);
 // every data request goes to this release's folder; and a page left open across a deploy says it is out of date.
 import { expect, test } from '@playwright/test';
-import { DESKTOP, contextFor, finishRush, home, sayCity, startRush, watch } from './helpers.ts';
+import { DESKTOP, contextFor, exitGame, finishRush, home, sayCity, startRush, watch } from './helpers.ts';
 
 test('every page response carries the security headers and the CSP', async ({ request }) => {
   const res = await request.get('/');
@@ -46,13 +46,15 @@ test('a full tour of the game breaks no CSP rule and asks only for this release\
   await expect(page.locator('.region-mode').first()).toBeVisible({ timeout: 30_000 });
   await page.locator('.region-mode').first().click();
   await expect(page.locator('.hud')).toBeVisible();
-  await page.click('.hud-top .close');
+  await exitGame(page);
   await startRush(page, 'Quick');
   await sayCity(page, 'Toronto');
   await finishRush(page);
+  await page.click('.rush-results .challenge-btn');
+  await expect(page.locator('.share-preview img')).toBeVisible({ timeout: 30_000 });
   const download = page.waitForEvent('download');
-  await page.click('.rush-results button:has-text("Save image")');
-  expect((await download).suggestedFilename()).toBe('atlas-city-rush-can.png');
+  await page.click('.share-sheet button:has-text("Save image")');
+  expect((await download).suggestedFilename()).toBe('atlas-city-rush-can.jpg');
 
   expect(await w.csp(), 'CSP violations').toEqual([]);
   expect(w.errors, 'page errors').toEqual([]);

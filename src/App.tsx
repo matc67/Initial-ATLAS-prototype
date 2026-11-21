@@ -3,7 +3,11 @@ import Starfield from './components/Starfield';
 import ChallengePicker from './components/ChallengePicker';
 import CityRush, { noRushHandlers, type RushHandlers, type RushPhase } from './components/CityRush';
 import { loadActive as loadActiveRush } from './game/cityRushRecords';
-import { challengeFrom } from './game/share';
+import { challengeLink, comparable as isComparable, parseChallenge, withoutChallenge, type Challenge } from './game/challengeLink';
+import { ExitConfirm } from './components/ExitConfirm';
+import { ChallengeInvite, ChallengeOutcome, InvalidChallenge, ShareSheet, type MadeCard } from './components/Challenge';
+import { renderShareCard, type GlobeShape } from './components/shareCard';
+import type { StripCell } from './game/shareCard';
 import Hud, { type HudFx } from './components/Hud';
 import { MysteryHistory, MysteryHud, MysteryResults, MysterySearch } from './components/Mystery';
 import ProgressPanel from './components/ProgressPanel';
@@ -25,7 +29,7 @@ import { bestsOf, isNewRecord, planSprint, type PersonalBests } from './game/spr
 import {
   ATTEMPT_POINTS, LATE_POINTS, STREAK_MILESTONES, bonusesOf, elapsed, formatTime, guess as guessRound, isCompleted, isPaused, newRound, next as nextRound,
   pause, resume, reveal as revealRound, statsOf, targetOf, typedGuess,
-  type Attempt, type NewBests, type Round,
+  type Attempt, type NewBests, type Round, type Stats,
 } from './game/scoring';
 import { AudioManager, cueFor } from './audio';
 import { CountryDistances } from './game/distance';
@@ -55,6 +59,7 @@ type MysteryGame = {
   order: 'latest' | 'closest';     // how the history is listed
   before: MysteryRecord | null;    // the record as it stood before this puzzle, for the results
   bests: MysteryBests | null;
+  vs?: Challenge | null;           // a friend's challenge this puzzle answers (a link), kept for the next one too
 };
 type Mode = GameMode;
 // A round in the app: the rules' Round plus what the screen needs around it.
@@ -73,7 +78,13 @@ type Game = {
   sub: SubdivisionSet | null;
   places: Map<string, Playable>;
   before: PersonalBests | null; // the records as they stood before this run, for the results comparison
+  vs?: Challenge | null;        // a friend's challenge this run answers (a link); Play again keeps it
 };
+
+// How much of the globe a round's share card shows for each area (km from its centre); the world shows a hemisphere.
+const AREA_RADIUS_KM: { [A in Area]: number | null } = { World: null, Africa: 4200, Americas: 7500, Asia: 5200, Europe: 2300, 'North America': 4300, 'South America': 3600, Oceania: 4800 };
+const STATUS_FILL: { [C in StripCell]: string } = { first: '#3fae74', retry: '#c99a3e', missed: '#a8404f' };
+const cellOf = (a: Attempt): StripCell => (a.hint ? 'missed' : a.mistakes ? 'retry' : 'first');
 
 const FLASH_GOOD = COLORS.good, FLASH_BAD = COLORS.bad, FLASH_SELECT = '#fff6dc';
 // A wrong guess flashes red only briefly (the country is never recoloured); the player can click again at once.
@@ -128,6 +139,13 @@ export default function App() {
   const [resultsPeek, setResultsPeek] = useState(false);
   // A newer release replaced this page's data (data/release.ts): say so instead of failing quietly.
   const [updated, setUpdated] = useState(false);
+  // A friend's challenge from a link, until accepted or dismissed; and a link that could not be read.
+  const [invite, setInvite] = useState<Challenge | null>(null);
+  const [invalidLink, setInvalidLink] = useState(false);
+  // The share sheet of a round's or a mystery's results.
+  const [sharing, setSharing] = useState(false);
+  // Exit asked during a round or a mystery with progress to lose: the clock waits while the player decides.
+  const [exitAsk, setExitAsk] = useState<'round' | 'mystery' | null>(null);
   const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
   const [, setTick] = useState(0);
   const [perf, setPerf] = useState(loadPerformance);
@@ -195,7 +213,7 @@ export default function App() {
   // ---- City Rush ----------------------------------------------------------------------------------------------------------
   // Open while `rushStart` is set (its key changes for each request, so a second request re-runs setup). CityRush owns the
   // run; App only highlights its country, keeps the globe's padding right, and forwards globe events to it.
-  const [rushStart, setRushStart] = useState<{ country: string | null; key: number } | null>(null);
+  const [rushStart, setRushStart] = useState<{ country: string | null; key: number; vs?: Challenge | null } | null>(null);
   const [rushPhase, setRushPhase] = useState<RushPhase>('setup');
   const [rushListOpen, setRushListOpen] = useState(false);
   const [rushHighlight, setRushHighlight] = useState<{ selected: string | null; playable: Set<string> | null }>({ selected: null, playable: null });
@@ -277,7 +295,7 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, []);
-  const running = inRound && !game!.held && !help && visible;
+  const running = inRound && !game!.held && !help && visible && !exitAsk;
   useEffect(() => {
     const g = gameRef.current;
     if (!g || g.round.phase === 'done') return;
@@ -286,7 +304,7 @@ export default function App() {
     if (!running && !isPaused(g.round)) commit({ ...g, round: pause(g.round, now) });
   }, [running]);
   // The mystery's clock follows the same rules.
-  const mysteryRunning = mysteryPlaying && !mystery!.held && !help && visible;
+  const mysteryRunning = mysteryPlaying && !mystery!.held && !help && visible && !exitAsk;
   useEffect(() => {
     const g = mysteryRef.current;
     if (!g || g.m.phase !== 'playing') return;
@@ -308,7 +326,7 @@ export default function App() {
   const lookAtTarget = (p: Playable) => (p.frame ? globeRef.current?.frame(p.frame.center, Math.max(150, p.frame.radiusKm * 1.15)) : flyToCountry(p));
 
   // Opens City Rush on the Play view, optionally on a country (a shared link). Any round or mystery on screen ends.
-  function openRush(country: string | null = null) {
+  function openRush(country: string | null = null, vs: Challenge | null = null) {
     leaveMystery();
     commit(null);
     setView('play');
@@ -316,7 +334,7 @@ export default function App() {
     setSelectedLand(null);
     setHelp(false);
     setRushPhase('setup');
-    setRushStart({ country, key: Date.now() });
+    setRushStart({ country, key: Date.now(), vs });
   }
   function closeRush() {
     setRushStart(null);
@@ -333,16 +351,17 @@ export default function App() {
 
   // Starts a Full Challenge (every country, shuffled) or a Sprint (a fresh random ten). `area` and `mode` default to the
   // current choice; Explore passes the opened country's continent to start that challenge directly.
-  function startRound({ kind = 'full', area: a = area, mode: m = mode }: { kind?: ChallengeKind; area?: Area; mode?: Mode } = {}) {
+  function startRound({ kind = 'full', area: a = area, mode: m = mode, set: cs = countrySet, vs = null }: { kind?: ChallengeKind; area?: Area; mode?: Mode; set?: CountrySet; vs?: Challenge | null } = {}) {
     leaveMystery();
     setRushStart(null);
-    const full = countryChallenge(a, countrySet, m);
+    if (cs !== countrySet) setCountrySet(cs);
+    const full = countryChallenge(a, cs, m);
     const pool = full.targetIds.filter(id => countries.has(id));
     let c = full, queue = pickRound(pool);
     if (kind === 'sprint') {
       const plan = planSprint(pool);
       if (!plan.ok) return;
-      c = sprintChallenge(a, countrySet, m);
+      c = sprintChallenge(a, cs, m);
       queue = plan.queue;
     }
     if (!queue.length) return;
@@ -354,7 +373,7 @@ export default function App() {
     setSelected(null);
     setSelectedLand(null);
     setHelp(false);
-    commit({ mode: m, area: a, set: countrySet, challenge: c, kind, round: newRound(queue, performance.now()), held: false, message: '', miss: null, fx: null, bests: null, before: null, sub: null, places: countries });
+    commit({ mode: m, area: a, set: cs, challenge: c, kind, round: newRound(queue, performance.now()), held: false, message: '', miss: null, fx: null, bests: null, before: null, sub: null, places: countries, vs });
     setGuess('');
     const first = countries.get(queue[0]);
     if (m === 'name' && first) flyToCountry(first); else globeRef.current?.fly(fit(AREA_CAMERA[a]));
@@ -363,7 +382,7 @@ export default function App() {
   // Starts Find the Region or Name the Region for a country's first-level subdivisions: every one (`full`), or a Sprint of
   // SPRINT_SIZE when it has that many. The same round engine, scoring, HUD and results as countries; the challenge and its
   // records are the country's own. Started from that country's Explore panel (docs/subdivisions.md).
-  function startSubdivisionRound(countryId: string, m: Mode, kind: ChallengeKind) {
+  function startSubdivisionRound(countryId: string, m: Mode, kind: ChallengeKind, vs: Challenge | null = null) {
     loadSubdivisions(countryId).then(set => {
       const country = countries.get(countryId), ids = playableIds(set);
       if (!country || !subdivisionKinds(ids.length).includes(kind)) return;
@@ -380,7 +399,7 @@ export default function App() {
       setSelectedLand(null);
       setHelp(false);
       setRegionView(null);
-      const g: Game = { mode: m, area: country.continent, set: countrySet, challenge, kind, round: newRound(queue, performance.now()), held: false, message: '', miss: null, fx: null, bests: null, before: null, sub: set, places };
+      const g: Game = { mode: m, area: country.continent, set: countrySet, challenge, kind, round: newRound(queue, performance.now()), held: false, message: '', miss: null, fx: null, bests: null, before: null, sub: set, places, vs };
       commit(g);
       setGuess('');
       if (m === 'name') lookAtTarget(places.get(queue[0])!); else frameScope(g);
@@ -587,7 +606,7 @@ export default function App() {
   // ---- Mystery Country ---------------------------------------------------------------------------------------------------
   // A new random mystery from the set, never one of the last few answers. The camera goes to the whole world, the same
   // for every answer, so it gives nothing away.
-  function startMystery(set: CountrySet = countrySet) {
+  function startMystery(set: CountrySet = countrySet, vs: Challenge | null = null) {
     leaveMystery();
     setRushStart(null);
     const pool = mysteryPool(set), answer = pickMystery(pool, recentRef.current);
@@ -602,7 +621,7 @@ export default function App() {
     setHelp(false);
     setRegionView(null);
     setHistoryOpen(false);
-    commitMystery({ m: newMystery(answer, performance.now()), set, challenge: mysteryChallenge(set, pool), held: false, message: '', order: 'latest', before: null, bests: null });
+    commitMystery({ m: newMystery(answer, performance.now()), set, challenge: mysteryChallenge(set, pool), held: false, message: '', order: 'latest', before: null, bests: null, vs });
     globeRef.current?.fly(fit(AREA_CAMERA.World));
   }
 
@@ -680,10 +699,18 @@ export default function App() {
     if (restored.current || !countries.size || !distRef.current) return;
     restored.current = true;
     // A timed City Rush in progress comes back first (its clock never stops); a shared link opens City Rush on its country.
-    const link = challengeFrom(location.search);
-    if (link) history.replaceState(null, '', location.pathname + location.hash);
+    // A challenge link is read once and taken out of the address, so a refresh does not ask again.
+    const link = parseChallenge(location.search);
+    if (link) history.replaceState(null, '', location.pathname + withoutChallenge(location.search) + location.hash);
     if (loadActiveRush()) { openRush(null); return; }
-    if (link && countries.has(link)) { openRush(link); return; }
+    if (link && 'invalid' in link) { console.warn(`ATLAS: challenge link not used (${link.invalid})`); setInvalidLink(true); }
+    else if (link) {
+      const c = link.challenge;
+      // The plain ?rush=CAN of earlier links: straight to City Rush on that country.
+      if (c.kind === 'rush' && c.target === null) { if (countries.has(c.country)) openRush(c.country); return; }
+      setInvite(c);
+      return;
+    }
     const a = loadActive(set => new Set(mysteryPool(set)));
     if (!a || gameRef.current) return;
     distRef.current.warm(a.answer);
@@ -705,8 +732,27 @@ export default function App() {
   // Same challenge, fresh run: a Sprint draws a new random ten.
   function playAgain() {
     const g = gameRef.current;
-    if (g?.sub) startSubdivisionRound(g.sub.countryId, g.mode, g.kind);
-    else if (g) startRound({ kind: g.kind, area: g.area, mode: g.mode });
+    if (g?.sub) startSubdivisionRound(g.sub.countryId, g.mode, g.kind, g.vs ?? null);
+    else if (g) startRound({ kind: g.kind, area: g.area, mode: g.mode, set: g.set, vs: g.vs ?? null });
+  }
+
+  // Exit: straight back when nothing would be lost; otherwise one question first (components/ExitConfirm.tsx). Never a
+  // results screen, never a record: an exited round is simply gone, an exited mystery counts as unsolved.
+  function exitRound() {
+    const g = gameRef.current;
+    if (g && g.round.phase !== 'done' && g.round.answers.length) setExitAsk('round'); else leaveRound();
+  }
+  function exitMystery() {
+    const g = mysteryRef.current;
+    if (g && g.m.phase === 'playing' && g.m.guesses.length) setExitAsk('mystery'); else leaveMysteryToMenu();
+  }
+  function leaveMysteryToMenu() { leaveMystery(); globeRef.current?.fly(fit(AREA_CAMERA[area])); }
+  // The Play tab is the game menu: from results or a City Rush setup it goes back there; during a game it asks to exit.
+  function toGameMenu() {
+    if (inRound) exitRound();
+    else if (mysteryPlaying) exitMystery();
+    else if (rushPlaying) return;
+    else { if (inRush) closeRush(); if (game) leaveRound(); if (mystery) leaveMysteryToMenu(); }
   }
 
   const hold = (held: boolean) => { const g = gameRef.current; if (g) commit({ ...g, held }); };
@@ -714,6 +760,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setHelp(false);
+      // A dialog open (Exit, sharing) owns the keyboard.
+      if (exitAsk || sharing || invite) return;
       const typing = (e.target as HTMLElement).tagName === 'INPUT', g = gameRef.current;
       if (e.key === 'Enter' && g?.round.phase === 'revealed' && !typing) next();
       // Enter replays a finished Sprint straight away (the Play again button has focus, so this is only for clicks elsewhere).
@@ -870,6 +918,52 @@ export default function App() {
   const roundDone = view === 'play' && !!game && round?.phase === 'done' && !!stats;
   const mysterySolved = inMystery && mystery!.m.phase === 'solved';
   useEffect(() => { setResultsPeek(false); }, [roundDone, mysterySolved, game?.round.queue, mystery?.m.answer]);
+  useEffect(() => { setSharing(false); }, [roundDone, mysterySolved]);
+
+  // ---- Challenges -------------------------------------------------------------------------------------------------------
+  const placeOf = (c: Challenge) => (c.kind === 'round' ? (c.area === 'World' ? 'the World' : c.area) : c.kind === 'mystery' ? '' : countries.get(c.country)?.name ?? c.country);
+  // A link for a game ATLAS cannot start here (a country without cities or regions): said plainly in the invitation.
+  const unavailable = (c: Challenge) =>
+    (c.kind === 'rush' || c.kind === 'regions') && !countries.has(c.country) ? 'That country is not in ATLAS.'
+    : c.kind === 'regions' && subIndex && !hasRegions(subIndex, c.country, import.meta.env.DEV) ? 'Regions are not available for that country in this version of ATLAS.'
+    : null;
+  // A target set on a different country list or scoring (an older release) is shown with a note.
+  const roundVersion = (c: Challenge) => (c.kind === 'round' ? (c.round === 'sprint' ? sprintChallenge(c.area, c.set, c.mode) : countryChallenge(c.area, c.set, c.mode)).version : null);
+  const inviteNote = (c: Challenge) => (c.kind === 'round' && !isComparable(c, roundVersion(c)) ? 'Your friend played an earlier version of this game, so the scores may not compare exactly.' : null);
+  function acceptChallenge(c: Challenge) {
+    setInvite(null);
+    if (c.kind === 'rush') openRush(c.country, c);
+    else if (c.kind === 'round') startRound({ kind: c.round, area: c.area, mode: c.mode, set: c.set, vs: c });
+    else if (c.kind === 'regions') startSubdivisionRound(c.country, c.mode, c.round, c);
+    else startMystery(c.set, c);
+  }
+  // The finished round's card: its countries (or regions) on the globe, coloured by how each was answered.
+  function roundCard(g: Game, st: Stats): Promise<MadeCard> {
+    const shapeOf = (id: string) => (g.sub ? g.sub.units.features.find(u => u.properties.id === id)?.geometry : shapesRef.current.get(id)) ?? null;
+    const shapes: GlobeShape[] = g.round.answers.flatMap(a => { const geometry = shapeOf(a.id); return geometry ? [{ geometry, fill: STATUS_FILL[cellOf(a)] }] : []; });
+    const country = g.sub ? countries.get(g.sub.countryId) : null;
+    return renderShareCard(
+      { kind: 'round', sprint: g.kind === 'sprint', mode: g.mode, place: g.sub ? scopeName(g) : g.area === 'World' ? 'The World' : g.area, iso2: country?.iso2 ?? null, units: unitsWord(g), score: st.score, maxScore: st.maxScore, firstTry: st.firstTryCorrect, total: st.total, mistakes: st.totalMistakes, elapsedMs: st.elapsedMs, regions: !!g.sub, strip: g.round.answers.map(cellOf) },
+      { center: g.sub ? g.sub.meta.frame.center : AREA_CAMERA[g.area].center, radiusKm: g.sub ? g.sub.meta.frame.radiusKm : AREA_RADIUS_KM[g.area], land: [...shapesRef.current.values()], shapes, points: [] },
+      location.host);
+  }
+  const roundLink = (g: Game, st: Stats) => challengeLink(location.origin, import.meta.env.BASE_URL, g.sub
+    ? { kind: 'regions', round: g.kind, country: g.sub.countryId, mode: g.mode === 'name' ? 'name' : 'find', target: st.score, version: g.challenge.version }
+    : { kind: 'round', round: g.kind, area: g.area, mode: g.mode, set: g.set, target: st.score, version: g.challenge.version });
+  // A solved mystery's card: how many guesses, each coloured by how close it was, and the guessed countries on the globe.
+  // Never the answer.
+  function mysteryCard(g: MysteryGame, st: { guesses: number; elapsedMs: number }): Promise<MadeCard> {
+    const wrong = g.m.guesses.filter(x => x.id !== g.m.answer);
+    const shapes: GlobeShape[] = wrong.flatMap(x => { const geometry = shapesRef.current.get(x.id); return geometry ? [{ geometry, fill: heatColor(heatOf(x.km)) }] : []; });
+    return renderShareCard(
+      { kind: 'mystery', set: g.set, guesses: st.guesses, elapsedMs: st.elapsedMs, heat: g.m.guesses.map(x => (x.id === g.m.answer ? '#4ade80' : heatColor(heatOf(x.km)))) },
+      { center: AREA_CAMERA.World.center, radiusKm: null, land: [...shapesRef.current.values()], shapes, points: [] },
+      location.host);
+  }
+  const outcomeFor = (vs: Challenge | null | undefined, kinds: Challenge['kind'][], result: number, version: string | null, format: (n: number) => string) =>
+    vs && kinds.includes(vs.kind) ? <ChallengeOutcome challenge={vs} result={result} comparable={isComparable(vs, version)} format={format} /> : null;
+  const points = (n: number) => `${n.toLocaleString('en-US')} pts`;
+
   const peekRow = (summary: ReactNode) => <div className="results-peek">
     <span>{summary}</span>
     <button className="btn small" aria-expanded={!resultsPeek} onClick={() => setResultsPeek(!resultsPeek)}>{resultsPeek ? 'Show results' : 'Show map'}</button>
@@ -890,7 +984,12 @@ export default function App() {
 
     <nav className="rail" aria-label="Sections">
       {([['explore', 'Explore', 'globe'], ['play', 'Play', 'play'], ['progress', 'Progress', 'bars']] as const).map(([v, label, icon]) =>
-        <button key={v} className={view === v ? 'active' : ''} onClick={() => { setView(v); setSelected(null); setSelectedLand(null); setHoverId(null); }}><Icon name={icon} /><span>{label}</span></button>)}
+        <button key={v} className={view === v ? 'active' : ''} onClick={() => {
+          if (v === 'play' && view === 'play') { toGameMenu(); return; }
+          // Leaving Play closes a City Rush that is not being played, so coming back shows the menu, not its old screen.
+          if (inRush && !rushPlaying) setRushStart(null);
+          setView(v); setSelected(null); setSelectedLand(null); setHoverId(null);
+        }}><Icon name={icon} /><span>{label}</span></button>)}
       <span className="rail-sep" />
       <button className={help ? 'active' : ''} aria-expanded={help} onClick={() => (help ? setHelp(false) : openHelp())}><Icon name="help" /><span>Help</span></button>
     </nav>
@@ -903,7 +1002,7 @@ export default function App() {
         <li><b>Name it</b> A country lights up in gold; type its name.</li>
         <li><b>Flags</b> We show a flag; click its country.</li>
         <li><b>Mystery</b> Guess a hidden country; each guess shows how far away it is.</li>
-        <li><b>City Rush</b> Pick a country and type its cities: each one appears on the globe and adds its people. 3, 5, 10 or 20 minutes, or no clock in City Explorer.</li>
+        <li><b>City Rush</b> Pick a country and type its cities: each one appears on the globe and adds its people. Quick Rush (3 minutes), Classic Rush (10), or City Explorer with no clock.</li>
         <li><b>Regions</b> States and provinces: open a country in Explore.</li>
       </ul>
       <p className="fine">A wrong click never shows the answer. Use Show me if you are stuck (0 points). Drag to turn the globe, scroll or pinch to zoom.</p></>}
@@ -927,13 +1026,13 @@ export default function App() {
       kindLabel={game.kind === 'sprint' ? 'Sprint' : null} area={scopeName(game)} mode={game.mode} held={game.held}
       round={round} stats={stats} target={target} unit={unitWord(game)} message={game.message} miss={game.miss} fx={game.fx} now={performance.now()}
       sound={sound} onSound={toggleSound} help={help} onHelp={openHelp}
-      onHold={hold} onEnd={leaveRound} onReveal={reveal} onNext={next} />}
+      onHold={hold} onEnd={exitRound} onReveal={reveal} onNext={next} />}
 
     {mysteryPlaying && mStats && <MysteryHud
       setLabel={mystery!.set === '195' ? 'Classic 195' : '200 countries'} held={mystery!.held} stats={mStats}
       closestName={mStats.closest ? nameOf(mStats.closest.id) : null} message={mystery!.message} latest={mLatest}
       historyOpen={historyOpen} onToggleHistory={() => setHistoryOpen(o => !o)}
-      sound={sound} onSound={toggleSound} help={help} onHelp={openHelp} onHold={holdMystery} onEnd={leaveMystery} />}
+      sound={sound} onSound={toggleSound} help={help} onHelp={openHelp} onHold={holdMystery} onEnd={exitMystery} />}
     {searchBar && <MysterySearch entries={mEntries} guessed={mGuessed} disabled={mystery!.held}
       onGuess={id => mysteryGuess(id, 'type')}
       onNoMatch={text => { const g = mysteryRef.current; if (g) commitMystery({ ...g, message: `No country in this game matches “${text}”.` }); }} />}
@@ -945,7 +1044,8 @@ export default function App() {
       <MysteryResults answer={countries.get(mystery!.m.answer)!} stats={mStats} closestName={mStats.closest ? nameOf(mStats.closest.id) : null}
         first={!mystery!.before || mystery!.before.solved === 0} record={isMysteryRecord(mystery!.bests)}
         best={mystery!.before?.best ? { guesses: mystery!.before.best.guesses, ms: mystery!.before.best.ms } : null}
-        history={mHistory} onNext={() => startMystery(mystery!.set)} onBack={() => { leaveMystery(); globeRef.current?.fly(fit(AREA_CAMERA[area])); }} />
+        outcome={outcomeFor(mystery!.vs, ['mystery'], mStats.guesses, null, n => `${n} guess${n === 1 ? '' : 'es'}`)} onChallenge={() => setSharing(true)}
+        history={mHistory} onNext={() => startMystery(mystery!.set, mystery!.vs ?? null)} onBack={leaveMysteryToMenu} />
     </aside>}
 
     {inRound && game?.area === 'Oceania' && !game.sub && !game.held && <RegionNav label="Pacific" views={PACIFIC_VIEWS} active={regionView} onPick={goToRegion} />}
@@ -959,6 +1059,7 @@ export default function App() {
       globe={globeRef.current} countries={countries} shapeOf={id => shapesRef.current.get(id) ?? null} start={rushStart!}
       audio={audio} sound={sound} onSound={toggleSound} handlers={rushHandlers}
       help={help} onHelp={c => { setRushHelp({ kind: 'rush', ...c }); openHelp(); }}
+      landShapes={() => [...shapesRef.current.values()]}
       onHighlight={setRushHighlight} onPhase={setRushPhase} onListOpen={setRushListOpen} onExit={closeRush} />}
 
     {!inRound && !inMystery && !inRush && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : view === 'explore' && subView ? 'card panel sub' : view === 'play' && !game ? 'card panel play-menu' : roundDone && resultsPeek ? 'card panel peek' : 'card panel'}>
@@ -990,7 +1091,8 @@ export default function App() {
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'sprint' && <SprintResults
         area={scopeName(game)} modeLabel={modeLabel(game)} stats={stats} answers={round.answers}
         before={game.before} bests={game.bests} countries={game.places} nameOf={nameOf}
-        onPlayAgain={playAgain} onChange={leaveRound}
+        onPlayAgain={playAgain} onChange={leaveRound} onChallenge={() => setSharing(true)}
+        outcome={outcomeFor(game.vs, ['round', 'regions'], stats.score, game.challenge.version, points)}
         heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} changeLabel={game.sub ? `Back to ${backName(game)}` : undefined}
         onProgress={game.sub ? undefined : () => { setRunView('latest'); setView('progress'); }} />}
 
@@ -1002,6 +1104,9 @@ export default function App() {
           <div><span>Score</span><strong>{stats.score.toLocaleString()}</strong><small>/ {stats.maxScore.toLocaleString()}</small>{game.bests?.score && <em>New best</em>}</div>
           <div><span>First-try accuracy</span><strong>{pct(stats.accuracy)}</strong>{game.bests?.accuracy && <em>New best</em>}</div>
         </div>
+        {outcomeFor(game.vs, ['round', 'regions'], stats.score, game.challenge.version, points)}
+        <button className="btn primary" onClick={playAgain}>Play again</button>
+        <button className="btn challenge-btn" onClick={() => setSharing(true)}><Icon name="share" />Share result</button>
         <dl className="facts">
           <div><dt>Correct on first try</dt><dd>{stats.firstTryCorrect} / {stats.total}</dd></div>
           <div><dt>{unitsWord(game).replace(/^./, ch => ch.toUpperCase())} missed</dt><dd>{stats.countriesMissed}</dd></div>
@@ -1012,9 +1117,8 @@ export default function App() {
         </dl>
         <ScoreBreakdown stats={stats} />
         <ReviewList answers={round.answers} countries={game.places} nameOf={nameOf} heading={unitsWord(game).replace(/^./, ch => ch.toUpperCase())} />
-        <button className="btn primary" onClick={playAgain}>Play again</button>
         {!game.sub && <button className="btn" onClick={() => { setRunView('latest'); setView('progress'); }}>See this run in Progress</button>}
-        <button className="btn" onClick={leaveRound}>{game.sub ? `Back to ${backName(game)}` : 'Change challenge'}</button>
+        <button className="btn" onClick={leaveRound}>{game.sub ? `Back to ${backName(game)}` : 'Back to menu'}</button>
       </>}
 
       {view === 'explore' && subView && selectedCountry ? <RegionsPanel country={selectedCountry} set={subView.set} selected={subView.selected}
@@ -1055,6 +1159,19 @@ export default function App() {
       : hoverCountry && <div className="hover-name"><Flag iso2={hoverCountry.iso2} />{hoverCountry.name}</div>}
     <div className="zoom" data-silent><button aria-label="Zoom in" onClick={() => globeRef.current?.zoomBy(1)}>+</button><button aria-label="Zoom out" onClick={() => globeRef.current?.zoomBy(-1)}>−</button></div>
     {loading && <div className="globe-loading" role="status">Loading the globe…</div>}
+    {invite && countries.size > 0 && <ChallengeInvite challenge={invite} place={placeOf(invite)} note={inviteNote(invite)} unavailable={unavailable(invite)}
+      onAccept={() => acceptChallenge(invite)} onDismiss={() => setInvite(null)} />}
+    {exitAsk === 'round' && game && <ExitConfirm title={`Exit this ${game.kind === 'sprint' ? 'Sprint' : 'challenge'}?`}
+      detail={`Your answers so far will be lost and no score is saved.${game.sub ? ` You go back to ${backName(game)}.` : ''}`}
+      onStay={() => setExitAsk(null)} onExit={() => { setExitAsk(null); leaveRound(); }} />}
+    {exitAsk === 'mystery' && <ExitConfirm title="Exit this mystery?" detail="It will count as unsolved, and its answer stays hidden."
+      onStay={() => setExitAsk(null)} onExit={() => { setExitAsk(null); leaveMysteryToMenu(); }} />}
+    {invalidLink && <InvalidChallenge onDismiss={() => setInvalidLink(false)} />}
+    {sharing && roundDone && game && stats && <ShareSheet make={() => roundCard(game, stats)} link={roundLink(game, stats)}
+      fileName={`atlas-${game.sub ? 'regions' : game.kind}-${(game.sub?.countryId ?? game.area).toLowerCase().replace(/\s+/g, '-')}.jpg`} onClose={() => setSharing(false)} />}
+    {sharing && mysterySolved && mystery && mStats && <ShareSheet make={() => mysteryCard(mystery, mStats)}
+      link={challengeLink(location.origin, import.meta.env.BASE_URL, { kind: 'mystery', set: mystery.set, target: mStats.guesses })}
+      fileName="atlas-mystery.jpg" onClose={() => setSharing(false)} />}
     {updated && <div className="update-note" role="alert">
       <p><strong>ATLAS has been updated.</strong> Reload to continue with the new version. Your saved progress is kept.</p>
       <div className="error-actions">

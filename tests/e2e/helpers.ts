@@ -66,7 +66,7 @@ export async function startRegions(page: Page, country = 'Canada') {
   await page.locator('.region-mode').first().click({ timeout: 30_000 });
   await expect(page.locator('.hud')).toBeVisible();
 }
-export type RushCard = 'Quick' | 'Classic' | 'Extended' | 'Marathon' | 'City Explorer';
+export type RushCard = 'Quick' | 'Classic' | 'City Explorer';
 export async function openRush(page: Page, country = 'CAN') {
   await page.goto(`/?rush=${country}`);
   await expect(page.locator('.rush-setup .btn.primary:not([disabled])')).toBeVisible({ timeout: 60_000 });
@@ -87,10 +87,24 @@ export async function sayCity(page: Page, name: string) {
 }
 export const readoutValue = (page: Page, name: string) => page.locator(`.rush-readouts .readout:has(span:text-is("${name}")) strong`).textContent().then(t => (t ?? '').trim());
 export async function finishRush(page: Page) {
-  await page.click('.rush-hud button:has-text("Finish")');
-  const confirm = page.locator('.rush-hud button:has-text("Finish now?")');
-  if (await confirm.isVisible()) await confirm.click();
-  await expect(page.locator('.rush-results')).toBeVisible();
+  // A timed run asks to confirm ("Finish now?", which lapses after a few seconds); City Explorer finishes at once.
+  const confirm = page.locator('.rush-hud button:has-text("Finish now?")'), results = page.locator('.rush-results');
+  for (let i = 0; i < 3 && !(await results.isVisible()); i++) {
+    if (!(await confirm.isVisible())) await page.locator('.rush-hud .finish').click();
+    await expect(confirm.or(results).first()).toBeVisible();
+    if (await confirm.isVisible()) await confirm.click().catch(() => {});
+    await results.waitFor({ timeout: 5000 }).catch(() => {});
+  }
+  await expect(results).toBeVisible();
+}
+// Exit from any game's panel: through the confirmation when one is asked (progress would be lost).
+export async function exitGame(page: Page, expectConfirm?: boolean) {
+  await page.locator('.hud .exit').first().click();
+  const dialog = page.locator('.exit-confirm');
+  if (expectConfirm === undefined) await page.waitForTimeout(150);
+  else if (expectConfirm) await expect(dialog).toBeVisible(); else await expect(dialog).toHaveCount(0);
+  if (await dialog.count()) await dialog.locator('button:has-text("Exit to menu")').click();
+  await expect(page.locator('.hud')).toHaveCount(0);
 }
 // "1:23" or "12:03.4" as milliseconds.
 export const clockMs = (s: string) => { const [m, sec] = s.trim().split(':'); return (Number(m) * 60 + Number(sec)) * 1000; };

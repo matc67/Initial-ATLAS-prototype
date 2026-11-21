@@ -43,7 +43,7 @@ export default function Hud(p: Props) {
       <button className={p.help ? 'icon-btn on' : 'icon-btn'} aria-label="How to play" aria-expanded={p.help} title="How to play" onClick={p.onHelp}><Icon name="help" /></button>
       <button className="icon-btn" data-silent aria-label={p.sound ? 'Mute sounds' : 'Turn sounds on'} aria-pressed={p.sound} title={p.sound ? 'Sound on' : 'Sound off'} onClick={p.onSound}><Icon name={p.sound ? 'sound' : 'mute'} /></button>
       <button className="icon-btn" aria-label={p.held ? 'Resume' : 'Pause'} onClick={() => p.onHold(!p.held)}><Icon name={p.held ? 'play-small' : 'pause'} /></button>
-      <button className="close" aria-label="End round" onClick={p.onEnd}>×</button>
+      <button className="btn small ghost exit" aria-label="Exit to menu" onClick={p.onEnd}><Icon name="exit" />Exit</button>
     </div>
 
     {p.held ? <div className="hud-main paused">

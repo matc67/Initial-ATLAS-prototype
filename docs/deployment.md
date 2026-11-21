@@ -72,6 +72,14 @@ The first deploy with release folders moves the data from `/data/...` to `/data/
 release before it (which predates the update notice) shows its ordinary "could not load" message the next time it
 needs a file, and works again after a reload. This happens once.
 
+## Link previews
+
+`index.html` carries Open Graph and Twitter Card tags pointing at `/og-image.jpg` with an absolute address, filled in at
+build time from Netlify's `URL` (or `SITE_URL`). After changing the image, run `npm run share-assets` and deploy. Chat
+apps and social sites cache previews for days: to refresh one, use the site's own tool (for example Facebook's Sharing
+Debugger or LinkedIn's Post Inspector); others refresh on their own schedule. A preview cannot show a player's result
+on a static site: that would need a server function drawing an image per link, which ATLAS does not have.
+
 ## Content Security Policy
 
 `default-src 'self'`, with only these exceptions: Google Fonts (`fonts.googleapis.com` styles, `fonts.gstatic.com`

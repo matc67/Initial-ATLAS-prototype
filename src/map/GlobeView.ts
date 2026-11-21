@@ -105,6 +105,9 @@ const strongLine = ['case', focused, '#fff6dc', ['match', status,
 const markerFade = (max: number): ExpressionSpecification => ['interpolate', ['linear'], ['zoom'], 4.2, max, 6.5, 0];
 
 const OCEANS: [string, LngLat][] = [['Pacific Ocean', [-150, 8]], ['Pacific Ocean', [165, 22]], ['Atlantic Ocean', [-38, 22]], ['Atlantic Ocean', [-20, -25]], ['Indian Ocean', [78, -22]], ['Southern Ocean', [40, -62]], ['Arctic Ocean', [-10, 84]]];
+// The relief shading's opacity by zoom, and its quieter version while City Rush shows region borders.
+const RELIEF_OPACITY = ['interpolate', ['linear'], ['zoom'], 1, 0.7, 3.5, 0.55, 5, 0] as ExpressionSpecification;
+const RELIEF_QUIET = ['interpolate', ['linear'], ['zoom'], 1, 0.36, 3.5, 0.28, 5, 0] as ExpressionSpecification;
 const SOURCES = ['countries', 'outlines', 'islets', 'halos', 'markers'] as const;
 // Halos are invisible click areas; rings are found by screen distance (see pick.ts), so only these layers are queried.
 const PICK_LAYERS = ['halo-hit', 'country-base', 'land-edge-base'];
@@ -302,7 +305,7 @@ export class GlobeView {
     // Shaded relief from Natural Earth, pre-converted to a transparent light/shadow overlay (scripts/build-relief.ts).
     // It fades out before the 2048-pixel texture turns blurry when zoomed in.
     map.addSource('relief', { type: 'image', url: dataUrl('relief.webp'), coordinates: RELIEF_BOUNDS });
-    map.addLayer({ id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.7, 3.5, 0.55, 5, 0], 'raster-fade-duration': 0, 'raster-resampling': 'linear' } });
+    map.addLayer({ id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-opacity': RELIEF_OPACITY, 'raster-fade-duration': 0, 'raster-resampling': 'linear' } });
     map.addLayer({ id: 'country-line', type: 'line', source: 'outlines', paint: {
       // Heat colours are pale to deep red, so their borders are dark to stay visible on them.
       'line-color': ['case', ['==', ['get', 'playable'], 0], COLORS.inactiveBorder, dimmed, COLORS.inactiveBorder, ['==', status, 'found'], COLORS.completedLine, ['==', status, 'heat'], 'rgba(48, 10, 20, 0.6)', BORDER],
@@ -378,10 +381,15 @@ export class GlobeView {
   private regionLabels = new Map<string, maplibregl.Marker>();
   private addRushLayers() {
     const map = this.map;
-    // Region borders: dark hairlines that read on any country colour and stay under the city dots.
+    // Region borders, under the city dots: a dark line on a soft light casing, so they read on any country colour (gold,
+    // teal, purple…) and over the relief shading, at every zoom. Thinner than the country's own outline, which stays the
+    // strongest line on the map.
     map.addSource('rush-regions', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'rush-region-casing', type: 'line', source: 'rush-regions', layout: { 'line-join': 'round' }, paint: {
+      'line-color': 'rgba(255, 250, 238, 0.42)', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.8, 4, 3, 8, 4.2], 'line-blur': 0.4,
+    } });
     map.addLayer({ id: 'rush-region-line', type: 'line', source: 'rush-regions', layout: { 'line-join': 'round' }, paint: {
-      'line-color': 'rgba(4, 14, 32, 0.6)', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.6, 4, 1.1, 8, 1.8],
+      'line-color': 'rgba(6, 16, 36, 0.92)', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.8, 4, 1.5, 8, 2.3],
     } });
     map.addSource('rush-cities', { type: 'geojson', data: EMPTY, promoteId: 'id' });
     const fresh = ['coalesce', ['feature-state', 'fresh'], 0] as ExpressionSpecification;
@@ -418,6 +426,8 @@ export class GlobeView {
     this.rushRegions = r;
     if (!this.loaded) return;
     (this.map.getSource('rush-regions') as maplibregl.GeoJSONSource).setData(r?.borders ?? EMPTY);
+    // With region borders on, the relief shading steps back (to about half), so thin internal lines are not lost in it.
+    this.map.setPaintProperty('relief', 'raster-opacity', r ? RELIEF_QUIET : RELIEF_OPACITY);
     this.placeRushLabels();
   }
 
@@ -536,8 +546,12 @@ export class GlobeView {
     map.addLayer({ id: 'sub-fill', type: 'fill', source: 'sub-units', paint: { 'fill-color': fill, 'fill-opacity': 0.97 } }, 'relief');
     map.addLayer({ id: 'sub-edge', type: 'line', source: 'sub-islets', layout: { 'line-join': 'round' }, paint: { 'line-color': fill, 'line-width': LAND_EDGE, 'line-opacity': 0.97 } }, 'relief');
     // Internal borders, a little lighter than country borders; coasts and international borders stay the country layer's.
+    // A dark casing under each, so the light line holds on pale fills and on relief as well as on dark ones.
+    map.addLayer({ id: 'sub-border-casing', type: 'line', source: 'sub-borders', layout: { 'line-join': 'round' }, paint: {
+      'line-color': 'rgba(4, 12, 28, 0.45)', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 1.4, 5, 2.8], 'line-blur': 0.5,
+    } }, 'country-line');
     map.addLayer({ id: 'sub-border', type: 'line', source: 'sub-borders', layout: { 'line-join': 'round' }, paint: {
-      'line-color': 'rgba(240, 246, 255, 0.62)', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.5, 5, 1.2],
+      'line-color': 'rgba(244, 248, 255, 0.82)', 'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.6, 5, 1.4],
     } }, 'country-line');
     // The selected or hovered unit (Explore); in a round, the answer shown in gold and the unit missed with Show me.
     map.addLayer({ id: 'sub-outline', type: 'line', source: 'sub-units', layout: { 'line-join': 'round' }, paint: {

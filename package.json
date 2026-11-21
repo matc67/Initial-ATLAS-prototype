@@ -20,7 +20,8 @@
     "test:e2e:only": "playwright test",
     "serve:dist": "node scripts/serve-dist.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "admin1:audit": "node scripts/audit-admin1.ts"
+    "admin1:audit": "node scripts/audit-admin1.ts",
+    "share-assets": "node scripts/build-share-assets.ts"
   },
   "dependencies": {
     "maplibre-gl": "^5.24.1",

@@ -33,6 +33,8 @@ const ICONS = {
   city: 'M3 21h18M5 21V10l5-3v14M10 21V4l6 3v14M16 21V11l3 1.5V21M7.5 12h.01M7.5 15.5h.01M13 9h.01M13 12.5h.01M13 16h.01',
   share: 'M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5M5 12v6.5A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V12',
   list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+  back: 'M15 5l-7 7 7 7',
+  exit: 'M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 17l-5-5 5-5M5 12h11',
 };
 export const Icon = ({ name }: { name: keyof typeof ICONS }) =>
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={ICONS[name]} /></svg>;

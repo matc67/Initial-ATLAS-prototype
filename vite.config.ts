@@ -16,10 +16,15 @@ function releaseData(hash: string): Plugin {
   };
 }
 
+// The site's address for link previews, which need absolute URLs: Netlify sets URL at build time (the production
+// address, also for deploy previews); otherwise ATLAS's own.
+const SITE_URL = (process.env.SITE_URL ?? process.env.URL ?? 'https://atlasxp.netlify.app').replace(/\/$/, '');
+const siteUrl: Plugin = { name: 'atlas-site-url', transformIndexHtml: html => html.replaceAll('%SITE_URL%', SITE_URL) };
+
 export default defineConfig(({ command }) => {
   const hash = command === 'build' ? dataHash('public/data') : null;
   return {
-    plugins: [react(), ...(hash ? [releaseData(hash)] : [])],
+    plugins: [react(), siteUrl, ...(hash ? [releaseData(hash)] : [])],
     define: hash ? { 'import.meta.env.ATLAS_DATA_DIR': JSON.stringify(dataDirOf(hash)) } : {},
     build: {
       // MapLibre is most of the JavaScript and changes only with a dependency update, so it gets a file of its own:

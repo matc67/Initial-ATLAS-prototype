@@ -59,7 +59,7 @@ export default function ChallengePicker({ area, loading, poolSize, sprintBest, f
       <span className="challenge-body">
         <strong>City Rush</strong>
         <span>Pick a country and name its cities. Each one lands on the globe.</span>
-        <em>{loading ? 'Loading the globe…' : '3 to 20 minutes, or explore with no clock'}</em>
+        <em>{loading ? 'Loading the globe…' : '3 or 10 minutes, or explore with no clock'}</em>
       </span>
     </button>
     <button className="challenge regions" onClick={onRegions} disabled={loading}>

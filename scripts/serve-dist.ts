@@ -29,7 +29,7 @@ export const headersFor = (rules: HeaderRule[], path: string) => Object.assign({
 
 const TYPES: { [ext: string]: string } = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
-  '.geojson': 'application/geo+json', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.png': 'image/png',
+  '.geojson': 'application/geo+json', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
 };
 
 export function serve(dir = 'dist', port = 4173, toml = readFileSync('netlify.toml', 'utf8')) {
