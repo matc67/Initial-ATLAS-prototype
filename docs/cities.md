@@ -108,12 +108,12 @@ A guess is compared only with the chosen country's cities. A city in another cou
 - an inserted, missing or swapped pair of neighbouring characters, for names of 6+ letters ("Tornto", "Vancover", "Niagra Falls"; a missing space counts as one);
 - one character replaced by another, for names of 8+ letters ("Vancouvar"). Short names are never corrected: Rome, Lima and York differ from other real places by a letter.
 - A guess one edit from two different cities is ambiguous: nothing is awarded ("close to more than one city").
-- A corrected name resolves exactly like the correct spelling: a shared name means the largest; "Portlnd, Maine" is Portland, Maine. Regions are never corrected.
+- A corrected name resolves exactly like the correct spelling: a shared name finds all of its cities; "Portlnd, Maine" is Portland, Maine. Regions are never corrected.
 - **Smaller real places.** The build keeps, per country, the real places in `cities1000` that are not on the list (under 1,000 people, or city sections) but are one typo from a listed name (1,212 worldwide, the `nearby` field). Typed exactly, they are never corrected into a listed city: "Altdorf is a smaller place, not on the list". They are checked by country, not by region, and never score.
 - A test checks every listed name and alias in Canada, Germany and the United States still matches exactly, and that a guess takes well under 20 ms in the United States.
 
 **Same-name cities.** Every guess means exactly one city, whatever has been found already, so results never depend on the order of guesses:
-- A name on its own means the largest city of that name: "Portland" is Portland, Oregon.
+- A name on its own finds every city of that name that counts toward the total, at once: the largest of the name in each region. "Springfield" adds the Springfields of Illinois, Massachusetts, Missouri and every other state that has one; "Portland" adds Portland, Oregon and Portland, Maine (and the others). A second, smaller city of the same name in the same region is not in the total and is never added. (Before this, a bare name meant only the largest city of that name.)
 - A name with a region means the largest city of that name in that region: "Portland, Maine", "Portland Maine", "Portland ME" and "Portland (Maine)" all work. Regions can be typed by their GeoNames name, ASCII form, English names and abbreviations ("ON", "Que.", "State of Maine"), and US postal codes.
 - Repeating a guess, or naming a city already found by another spelling, is "already found". When the name is shared, the message suggests adding a region.
 - A region can be typed with or without a leading "The" ("Villanova, The Marches" or "Villanova, Marche").

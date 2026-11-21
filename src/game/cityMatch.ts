@@ -170,17 +170,23 @@ export function typoKeys(book: CityBook, g: string): string[] {
 // What a typed guess means, in order:
 //   exact       the name or an alias, whole ("Portland"), else name plus region ("Portland, Maine"): findCity
 //   small       typed exactly as a real smaller place not on the list: never corrected into a listed city
-//   typo        one typo from exactly one city, resolved like the name it corrects to (a shared name means the largest;
-//               with a region, the largest in that region). `as` is the name it was read as.
+//   typo        one typo from exactly one name, resolved like the name it corrects to. `as` is the name it was read as.
+// A bare name finds every city of that name that counts toward the total, at once: "Springfield" is the largest
+// Springfield in each state (Illinois, Massachusetts, Missouri…), largest first: `id` is the largest, `ids` all of them.
+// With a region, only the largest of the name in that region ("Springfield, Illinois"). A second, smaller Springfield
+// in the same state is not in the total (only one per region can be reached by name), so it is never added.
 //   ambiguous   one typo from more than one city: nothing is awarded
 export type GuessMatch =
-  | { kind: 'exact'; id: string; qualified: boolean }
-  | { kind: 'typo'; id: string; qualified: boolean; as: string }
+  | { kind: 'exact'; id: string; ids: string[]; qualified: boolean }
+  | { kind: 'typo'; id: string; ids: string[]; qualified: boolean; as: string }
   | { kind: 'ambiguous' }
   | { kind: 'small'; name: string };
+// Every city a bare name finds: those of the name that count toward the total, largest first.
+export const allNamed = (book: CityBook, key: string): string[] => (book.names.get(key) ?? []).filter(id => book.reachable.has(id));
+
 export function matchGuess(book: CityBook, guess: string): GuessMatch | null {
   const exact = findCity(book, guess);
-  if (exact) return { kind: 'exact', ...exact };
+  if (exact) return { kind: 'exact', ...exact, ids: exact.qualified ? [exact.id] : allNamed(book, foldCity(guess)) };
   const k = foldCity(guess);
   if (!k) return null;
   const splits = k.split(' ').map((_, i, w) => ({ name: w.slice(0, i).join(' '), rs: regionFor(book, w.slice(i).join(' ')) }))
@@ -194,7 +200,7 @@ export function matchGuess(book: CityBook, guess: string): GuessMatch | null {
   const decide = (hits: Map<string, string>, qualified: boolean): GuessMatch | null => {
     if (hits.size > 1) return { kind: 'ambiguous' };
     const [hit] = [...hits];
-    return hit ? { kind: 'typo', id: hit[0], qualified, as: book.cities.get(hit[0])!.name } : null;
+    return hit ? { kind: 'typo', id: hit[0], ids: qualified ? [hit[0]] : allNamed(book, hit[1]), qualified, as: book.cities.get(hit[0])!.name } : null;
   };
   const whole = decide(resolve(typoKeys(book, k)), false);
   if (whole) return whole;

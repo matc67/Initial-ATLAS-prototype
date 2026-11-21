@@ -20,7 +20,7 @@ browser; there is no login and no server.
   appears on the globe and adds its people; the score is **City Population Coverage**, the share of the people in the
   country's listed cities that you found (not of its national population). Bests and history are kept per country and
   duration. After every finished run, **Cities You Missed** shows the five largest cities you did not name; name them
-  next time and the next ones appear. One-letter typos of longer names are accepted, and region borders are drawn where
+  next time and the next ones appear. A name counts every city of that name at once ("Springfield" finds one per state; "Springfield, Illinois" just that one). One-letter typos of longer names are accepted, and region borders are drawn where
   ATLAS has them. **Exit** (in every game's panel) goes back to the menu: a timed run is abandoned with no score
   and no answers shown (after one question, if cities were named); City Explorer keeps its map. **Finish** ends a run and
   shows its results, recorded once.

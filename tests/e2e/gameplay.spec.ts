@@ -165,3 +165,22 @@ for (const size of [PHONE, DESKTOP] as Size[]) {
     });
   });
 }
+
+test('City Rush: a name shared by many cities finds all of them at once (Springfield)', async ({ browser }) => {
+  const { bookOf } = await import('../../src/data/cities.ts');
+  const { matchGuess } = await import('../../src/game/cityMatch.ts');
+  const ctx = await contextFor(browser, DESKTOP); const page = await ctx.newPage();
+  await startRush(page, 'Quick', 'USA');
+  const { dataDir } = await (await page.request.get('/release.json')).json();
+  const book = bookOf(await (await page.request.get(`/${dataDir}cities/USA.json`)).json());
+  const all = (matchGuess(book, 'Springfield') as { ids: string[] }).ids;
+  expect(all.length).toBeGreaterThan(5);
+  // One state first, then the bare name: the rest arrive together.
+  expect(await sayCity(page, 'Springfield, Illinois')).toMatch(/Springfield/);
+  expect(await readoutValue(page, 'Cities')).toBe('1');
+  const msg = await sayCity(page, 'Springfield');
+  expect(msg).toMatch(new RegExp(`Springfield · ${all.length - 1} cities \\(`));
+  expect(await readoutValue(page, 'Cities')).toBe(String(all.length));
+  expect(await sayCity(page, 'Springfield')).toMatch(new RegExp(`Already found: every Springfield \\(${all.length}\\)`));
+  await ctx.close();
+});

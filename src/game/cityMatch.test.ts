@@ -149,9 +149,9 @@ test('one edit: insertion, deletion, neighbour swap, substitution', () => {
 test('typos of long enough names are accepted as that city, and say so', () => {
   const niagara = city('Niagara Falls', 88_071), toronto = city('Toronto', 2_794_356), vancouver = city('Vancouver', 600_000);
   const book = buildBook([niagara, toronto, vancouver]);
-  assert.deepEqual(matchGuess(book, 'Niagra Falls'), { kind: 'typo', id: niagara.id, qualified: false, as: 'Niagara Falls' });
-  assert.deepEqual(matchGuess(book, 'Tornto'), { kind: 'typo', id: toronto.id, qualified: false, as: 'Toronto' });
-  assert.deepEqual(matchGuess(book, 'vancover'), { kind: 'typo', id: vancouver.id, qualified: false, as: 'Vancouver' });
+  assert.deepEqual(matchGuess(book, 'Niagra Falls'), { kind: 'typo', id: niagara.id, ids: [niagara.id], qualified: false, as: 'Niagara Falls' });
+  assert.deepEqual(matchGuess(book, 'Tornto'), { kind: 'typo', id: toronto.id, ids: [toronto.id], qualified: false, as: 'Toronto' });
+  assert.deepEqual(matchGuess(book, 'vancover'), { kind: 'typo', id: vancouver.id, ids: [vancouver.id], qualified: false, as: 'Vancouver' });
   assert.equal(matchGuess(book, 'NiagaraFalls')?.kind, 'typo', 'a missing space is one edit');
   assert.equal(matchGuess(book, 'Vancouvar')?.kind, 'typo', 'substitution in a 9-letter name');
   assert.equal(matchGuess(book, 'Trnto'), null, 'two edits are never accepted');
@@ -160,8 +160,8 @@ test('typos of long enough names are accepted as that city, and say so', () => {
 test('accents and case are forgiven exactly, before any typo rule', () => {
   const m = city('Montréal', 1_700_000), q = city('Québec', 550_000);
   const book = buildBook([m, q]);
-  assert.deepEqual(matchGuess(book, 'MONTREAL'), { kind: 'exact', id: m.id, qualified: false });
-  assert.deepEqual(matchGuess(book, 'quebec'), { kind: 'exact', id: q.id, qualified: false });
+  assert.deepEqual(matchGuess(book, 'MONTREAL'), { kind: 'exact', id: m.id, ids: [m.id], qualified: false });
+  assert.deepEqual(matchGuess(book, 'quebec'), { kind: 'exact', id: q.id, ids: [q.id], qualified: false });
   assert.equal(matchGuess(book, 'Montrael')?.kind, 'typo');
 });
 
@@ -174,8 +174,8 @@ test('short names are never corrected; substitutions need 8 letters', () => {
 test('a correctly spelled city always wins over a typo of another', () => {
   const a = city('Hamilton', 570_000), b = city('Hamilten', 6_000);
   const book = buildBook([a, b]);
-  assert.deepEqual(matchGuess(book, 'Hamilten'), { kind: 'exact', id: b.id, qualified: false });
-  assert.deepEqual(matchGuess(book, 'Hamilton'), { kind: 'exact', id: a.id, qualified: false });
+  assert.deepEqual(matchGuess(book, 'Hamilten'), { kind: 'exact', id: b.id, ids: [b.id], qualified: false });
+  assert.deepEqual(matchGuess(book, 'Hamilton'), { kind: 'exact', id: a.id, ids: [a.id], qualified: false });
 });
 
 test('a typo close to two different cities is ambiguous and awards nothing', () => {
@@ -189,9 +189,9 @@ test('a typo close to two different cities is ambiguous and awards nothing', () 
 test('a typo never bypasses same-name rules: it means what the correct spelling means', () => {
   const or = city('Portland', 650_000, [], 0), me = city('Portland', 68_000, [], 1);
   const book = buildBook([or, me], [['Oregon'], ['Maine', 'ME']]);
-  assert.equal((matchGuess(book, 'Portlnd') as { id: string }).id, or.id, 'a bare typo means the largest');
+  assert.deepEqual((matchGuess(book, 'Portlnd') as { ids: string[] }).ids, [or.id, me.id], 'a bare typo means every Portland, as the right spelling does');
   const q = matchGuess(book, 'Portlnd, Maine');
-  assert.deepEqual(q, { kind: 'typo', id: me.id, qualified: true, as: 'Portland' });
+  assert.deepEqual(q, { kind: 'typo', id: me.id, ids: [me.id], qualified: true, as: 'Portland' });
   assert.equal(matchGuess(book, 'Portland, Mane'), null, 'regions are never corrected');
 });
 
@@ -232,4 +232,28 @@ test('a city only a nameless region could single out is not counted in the total
   // With a region name it is reachable as before.
   const named = buildBook([big, small], [['Cagayan'], ['Bohol']]);
   assert.equal(named.reachable.size, 2);
+});
+
+test('a bare name finds every city of that name at once: one per region, largest first; a region narrows it to one', () => {
+  const il = city('Springfield', 114_000, [], 0), ma = city('Springfield', 155_000, [], 1), mo = city('Springfield', 169_000, [], 2);
+  const ilSmall = city('Springfield', 3_000, [], 0);   // a second, smaller one in Illinois: not in the total
+  const other = city('Chicago', 2_700_000, [], 0);
+  const book = buildBook([il, ma, mo, ilSmall, other], [['Illinois', 'IL'], ['Massachusetts', 'MA'], ['Missouri', 'MO']]);
+  const all = matchGuess(book, 'springfield');
+  assert.deepEqual(all, { kind: 'exact', id: mo.id, ids: [mo.id, ma.id, il.id], qualified: false });
+  assert.ok(!book.reachable.has(ilSmall.id));
+  assert.deepEqual(matchGuess(book, 'Springfield, Illinois'), { kind: 'exact', id: il.id, ids: [il.id], qualified: true });
+  assert.deepEqual((matchGuess(book, 'Sprinfield') as { ids: string[] }).ids, [mo.id, ma.id, il.id], 'a typo finds them all too');
+  // Played: one guess adds all three, with all their people; repeating it adds nothing.
+  let r = newRush('USA', 'v', 'timed', 0);
+  r = guessRush(r, 'Springfield, Illinois', [il.id], 1).rush;
+  const o = guessRush(r, 'Springfield', (all as { ids: string[] }).ids, 2);
+  assert.equal(o.outcome, 'new');
+  assert.deepEqual(o.rush.found, [il.id, mo.id, ma.id], 'the one already found is not added twice');
+  assert.equal(awards(book, o.rush.found).reduce((a, b) => a + b, 0), 114_000 + 169_000 + 155_000);
+  assert.equal(o.rush.foundAt.length, 3);
+  assert.equal(guessRush(o.rush, 'Springfield', (all as { ids: string[] }).ids, 3).outcome, 'duplicate');
+  // Coverage can never pass 100%: everything a name can add is in the total.
+  const every = [...book.names.keys()].flatMap(k => (matchGuess(book, k) as { ids: string[] }).ids);
+  assert.equal(awards(book, [...new Set(every)]).reduce((a, b) => a + b, 0), book.total);
 });

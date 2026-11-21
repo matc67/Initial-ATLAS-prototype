@@ -27,6 +27,7 @@ import type { GlobeView, RushPoint } from '../map/GlobeView';
 import { Burst } from './Results';
 import { ChallengeOutcome, ShareSheet } from './Challenge';
 import { ExitConfirm } from './ExitConfirm';
+import { Sheet, useSheet } from './Sheet';
 import { renderShareCard } from './shareCard';
 import { Flag, Icon, reducedMotion, useTween } from './ui';
 
@@ -112,6 +113,8 @@ export default function CityRush(p: Props) {
   const rushVs = (c: Challenge | null | undefined) => (c?.kind === 'rush' && c.target !== null ? c : null);
   const [vs, setVs] = useState(() => rushVs(p.start.vs));
   const [sharing, setSharing] = useState(false);
+  // Phones: the setup is a bottom sheet, open when City Rush opens; a tap on the globe (choosing a country) folds it.
+  const [setupOpen, setSetupOpen] = useSheet(true);
   // Set when a timed run ran out while the page was closed: its results say so.
   const [endedAway, setEndedAway] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -120,6 +123,7 @@ export default function CityRush(p: Props) {
   const phase: RushPhase = !rush ? 'setup' : rush.phase === 'playing' ? 'playing' : 'done';
   const target = country ? countries.get(country) : undefined;
   const entry = country && index ? index.countries[country] : undefined;
+  const ready = !!data && data.file.country === country && !!entry?.playable;
   const playableSet = useMemo(() => (index ? new Set(Object.entries(index.countries).filter(([, e]) => e.playable).map(([id]) => id)) : null), [index]);
 
   useEffect(() => { p.onPhase(phase); }, [phase]);
@@ -363,7 +367,8 @@ export default function CityRush(p: Props) {
     const now = Date.now(), typed = text;
     const match = matchGuess(data.book, typed);
     const cityId = match && (match.kind === 'exact' || match.kind === 'typo') ? match.id : null;
-    const { rush: next, outcome } = guessRush(r, typed, cityId, now);
+    const named = match && (match.kind === 'exact' || match.kind === 'typo') ? match.ids : null;
+    const { rush: next, outcome } = guessRush(r, typed, named, now);
     const key = ++fxKey.current;
     if (outcome === 'over') { finish(r); return; }
     if (outcome === 'empty') return;
@@ -374,20 +379,26 @@ export default function CityRush(p: Props) {
     if (outcome === 'new' && c) {
       commit(next);
       persist(next);
-      globe?.freshen([c.id]);
+      // Every city the name found and that is new: one, or all the Springfields at once.
+      const added = next.found.slice(r.found.length), first = data.book.cities.get(added[0]) ?? c;
+      globe?.freshen(added);
       setText('');
-      const gains = awards(data.book, next.found), gain = gains[gains.length - 1];
-      const before = coverageOf(gains.slice(0, -1).reduce((x, y) => x + y, 0), data.book.total);
+      const gains = awards(data.book, next.found), mine = gains.slice(gains.length - added.length), gain = mine.reduce((x, y) => x + y, 0);
+      const before = coverageOf(gains.slice(0, -added.length).reduce((x, y) => x + y, 0), data.book.total);
       const after = coverageOf(gains.reduce((x, y) => x + y, 0), data.book.total);
-      const parent = c.partOf ? data.book.cities.get(c.partOf) : undefined;
-      const label = cityLabel(data.book, c);
+      const parent = first.partOf ? data.book.cities.get(first.partOf) : undefined;
+      const where = added.map(id => data.book.cities.get(id)?.admin1).filter(Boolean) as string[];
+      const label = added.length > 1
+        ? `${first.name} · ${added.length} cities (${where.slice(0, 3).join(', ')}${where.length > 3 ? ` + ${where.length - 3} more` : ''})`
+        : cityLabel(data.book, first);
       // Named this time after being missed last time: the lesson stuck. Same people as always, no bonus.
-      const learned = missedBefore(learningRef.current[learningKey(r.country, r.durationMs)], data.book).has(c.id) && gain > 0;
+      const missed = missedBefore(learningRef.current[learningKey(r.country, r.durationMs)], data.book);
+      const learned = added.some((id, i) => missed.has(id) && mine[i] > 0);
       setFeedback({
         kind: learned ? 'learned' : 'new', key, gain,
         text: learned ? `Learned! ${typo}${label} · +${exactPeople(gain)} people`
           : gain > 0 ? `${typo}${label} · +${exactPeople(gain)} people`
-          : c.population <= 0 ? `${typo}${label} · no population recorded`
+          : first.population <= 0 ? `${typo}${label} · no population recorded`
           : `${typo}${label} · already counted in ${parent?.name ?? 'its city'}`,
       });
       const m = milestoneCrossed(before, after);
@@ -396,9 +407,9 @@ export default function CityRush(p: Props) {
     } else if (outcome === 'duplicate' && c && match && match.kind !== 'ambiguous' && match.kind !== 'small') {
       globe?.freshen([c.id]);
       setText('');
-      // A bare name always means the largest city of that name: the others need their region.
-      const others = !match.qualified && namesakes(data.book, c) > 1;
-      setFeedback({ kind: 'duplicate', key, text: others ? `Already found: ${cityLabel(data.book, c)}. For another ${c.name}, add its region.` : `Already found: ${cityLabel(data.book, c)}` });
+      // A bare name finds every city of the name at once, so a repeat means all of them are found already.
+      const all = !match.qualified && match.ids.length > 1;
+      setFeedback({ kind: 'duplicate', key, text: all ? `Already found: every ${c.name} (${match.ids.length})` : `Already found: ${cityLabel(data.book, c)}` });
     } else {
       // Kept and selected, so a typo is one keystroke from fixed and a new name simply types over it.
       const shown = typed.trim();
@@ -492,11 +503,15 @@ export default function CityRush(p: Props) {
   const playingList = useMemo(() => (data && count ? list(rush?.mode === 'explorer') : null), [found, data, rush?.mode]);
 
   return <>
-    {phase === 'setup' && <aside className="card panel rush-setup" aria-label="City Rush">
-      <div className="card-head">
-        <div className="eyebrow">City Rush</div>
-        <button className="btn small ghost back-menu" onClick={p.onExit}><Icon name="back" />Back to menu</button>
-      </div>
+    {phase === 'setup' && <Sheet open={setupOpen} onOpen={setSetupOpen} className="rush-setup" label="City Rush"
+      summary={<><strong>{target ? <><Flag iso2={target.iso2} />{target.name}</> : 'City Rush'}</strong><small>{target && entry?.playable ? (choice === 'explorer' ? 'City Explorer' : DURATION_NAMES[choice]) : 'Choose a country'}</small></>}
+      action={ready && <button className="btn primary small sheet-go" onClick={() => begin()}>Start</button>}
+      footer={target && entry?.playable && <>
+        <button className="btn primary" autoFocus disabled={!ready} onClick={() => begin()}>{!ready ? 'Loading cities…'
+          : mode === 'explorer' ? (savedCount > 0 ? `Continue exploring · ${plural(savedCount, 'city', 'cities')}` : 'Start exploring') : `Start ${DURATION_NAMES[choice as Duration]}`}</button>
+        {mode === 'explorer' && savedCount > 0 && <button className="link center" onClick={() => begin({ fresh: true })}>Start a clean map instead</button>}
+      </>}>
+      <nav className="crumbs" aria-label="Where you are"><button className="link" onClick={p.onExit}>Games</button><span aria-hidden="true">›</span><span className="eyebrow">City Rush</span></nav>
       <h1 className="with-flag">{target ? <><Flag iso2={target.iso2} size="lg" />{target.name}</> : 'Choose a country'}</h1>
       <CountrySearch countries={countries} index={index} onPick={chooseCountry} />
       {indexFailed && <p className="muted">The city list could not load. <button className="link" onClick={loadIndex}>Try again</button></p>}
@@ -516,9 +531,6 @@ export default function CityRush(p: Props) {
         </div>
         {vs && vs.country === country && <p className="challenge-target" role="status"><Icon name="bolt" />Your friend&rsquo;s score: <b>{vs.target!.toFixed(1)}%</b> in {vs.durationS === null ? 'City Explorer' : DURATION_NAMES[vs.durationS as Duration]}. Beat it.</p>}
         {dataFailed && <p className="muted">These cities could not load. Check your connection and choose the country again.</p>}
-        <button className="btn primary" autoFocus disabled={!data || data.file.country !== country} onClick={() => begin()}>{!data || data.file.country !== country ? 'Loading cities…'
-          : mode === 'explorer' ? (savedCount > 0 ? `Continue exploring · ${plural(savedCount, 'city', 'cities')}` : 'Start exploring') : `Start ${DURATION_NAMES[choice as Duration]}`}</button>
-        {mode === 'explorer' && savedCount > 0 && <button className="link center" onClick={() => begin({ fresh: true })}>Start a clean map instead</button>}
         {regionToggle}
       </>}
       <details className="how-scoring">
@@ -526,12 +538,12 @@ export default function CityRush(p: Props) {
         <ul>
           <li>Every city you name adds its people to your score, so big cities count most: one capital can be worth hundreds of villages.</li>
           <li>Coverage is the share of the people living in our list of {target ? `${target.name}’s` : 'the country’s'} cities (places of 1,000 or more), not of the whole national population, which also counts people outside them.</li>
-          <li>A name means the largest city of that name; for another, add its region (“Portland, Maine”). Districts inside a city count toward that city.</li>
+          <li>A name counts every city of that name at once, one per state or region: “Springfield” finds them all. Add a region for just one (“Springfield, Illinois”). Districts inside a city count toward that city.</li>
           <li>Quick and Classic rushes run on a clock that never pauses and keep your best score. City Explorer has no clock: your map is saved and you can keep adding to it.</li>
         </ul>
         <p className="fine">City data: GeoNames (CC BY 4.0).</p>
       </details>
-    </aside>}
+    </Sheet>}
 
     {phase === 'playing' && rush && target && <div className="rush-top">
       <section className="hud rush-hud" aria-label="City Rush">
