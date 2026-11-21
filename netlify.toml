@@ -15,11 +15,18 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# Map data and flags keep their names between releases: browsers keep them but check for a newer copy.
+# Map and city data live in a folder named after their contents (/data/<hash>/, see scripts/release-data.ts): a release
+# that changes data gets a new folder, so a copy can be kept for good. /release.json names the current folder and is
+# always checked, so a page left open across a deploy can tell it is out of date.
 [[headers]]
   for = "/data/*"
   [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/release.json"
+  [headers.values]
+    Cache-Control = "no-cache"
 
 [[headers]]
   for = "/flags/*"
@@ -33,3 +40,7 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-Frame-Options = "DENY"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    # Everything ATLAS loads comes from this site, except the two Google Fonts. MapLibre runs its worker from a blob: URL
+    # and decodes images from data: and blob: URLs. Styles set from scripts (element.style) are not inline styles, so no
+    # 'unsafe-inline'. Checked by the browser tests (tests/e2e/security.spec.ts), which serve dist/ with these headers.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; worker-src blob:; child-src blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'"

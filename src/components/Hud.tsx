@@ -21,6 +21,7 @@ type Props = {
   miss: string | null;        // set after a wrong answer: '' in Find it, `Not “…”` in Name it
   fx: HudFx | null; now: number;
   sound: boolean; onSound: () => void;
+  help: boolean; onHelp: () => void;   // the rules of this game, without leaving it
   onHold: (held: boolean) => void; onEnd: () => void; onReveal: () => void; onNext: () => void;
 };
 
@@ -39,6 +40,7 @@ export default function Hud(p: Props) {
       <span className="hud-area">{p.kindLabel && <><Icon name="bolt" />{p.kindLabel} · </>}{p.area}</span>
       <div className="bar"><div style={{ width: `${(stats.completed / stats.total) * 100}%` }} /></div>
       <span className="hud-count"><b>{stats.completed}</b> / {stats.total}</span>
+      <button className={p.help ? 'icon-btn on' : 'icon-btn'} aria-label="How to play" aria-expanded={p.help} title="How to play" onClick={p.onHelp}><Icon name="help" /></button>
       <button className="icon-btn" data-silent aria-label={p.sound ? 'Mute sounds' : 'Turn sounds on'} aria-pressed={p.sound} title={p.sound ? 'Sound on' : 'Sound off'} onClick={p.onSound}><Icon name={p.sound ? 'sound' : 'mute'} /></button>
       <button className="icon-btn" aria-label={p.held ? 'Resume' : 'Pause'} onClick={() => p.onHold(!p.held)}><Icon name={p.held ? 'play-small' : 'pause'} /></button>
       <button className="close" aria-label="End round" onClick={p.onEnd}>×</button>

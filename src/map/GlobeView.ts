@@ -6,6 +6,7 @@ import { distanceKm, type LngLat } from '../game/geo';
 import { HEAT_STOPS } from '../game/mystery';
 import { isletsOf, outlinesOf } from './outlines';
 import { markerActive, reachFor, resolvePick, resolveSubPick, ringRadiusAt, ringUntilZoom } from './pick';
+import { dataUrl, fetchData } from '../data/release.ts';
 
 // Round states: `found` = completed this round, `answer` = shown after the last miss, `target` = the country to name.
 // Progress states, from one recorded run: `first` = correct first try, `retry` = needed more attempts, `hinted` = Show me.
@@ -55,7 +56,6 @@ const palette = (colors: string[]): ExpressionSpecification =>
 const vivid = palette(COLORS.country), muted = palette(COLORS.country.map(c => mix(c, NAVY, 0.38))), lifted = palette(COLORS.country.map(c => mix(c, NAVY, 0.18)));
 const inactive = ['match', ['%', ['get', 'color'], 2], 0, COLORS.inactiveAlt, COLORS.inactive] as unknown as ExpressionSpecification;
 
-const DATA = `${import.meta.env.BASE_URL}data`;
 const status = ['coalesce', ['feature-state', 'status'], ''] as ExpressionSpecification;
 const hovered = ['boolean', ['feature-state', 'hover'], false] as ExpressionSpecification;
 const dimmed = ['boolean', ['feature-state', 'dim'], false] as ExpressionSpecification;
@@ -272,11 +272,7 @@ export class GlobeView {
   // Resolves with the country shapes and the ids of countries small enough to carry a ring marker.
   async load(): Promise<{ countries: GeoJSON.FeatureCollection; tiny: Set<string> }> {
     await this.ready;
-    const get = async <T,>(file: string): Promise<T> => {
-      const res = await fetch(`${DATA}/${file}`);
-      if (!res.ok) throw new Error(`Could not load ${file} (${res.status}).`);
-      return res.json();
-    };
+    const get = <T,>(file: string) => fetchData<T>(file);
     const [topo, halos, markers] = await Promise.all([
       get<Topology<{ countries: GeometryCollection }>>('countries.topo.json'),
       get<GeoJSON.FeatureCollection>('halos.geojson'),
@@ -305,7 +301,7 @@ export class GlobeView {
     map.addLayer({ id: 'land-edge-active', type: 'line', source: 'islets', layout: { 'line-join': 'round' }, paint: { 'line-color': activeColor(this.theme), 'line-width': LAND_EDGE, 'line-opacity': ['*', 0.97, act] } });
     // Shaded relief from Natural Earth, pre-converted to a transparent light/shadow overlay (scripts/build-relief.ts).
     // It fades out before the 2048-pixel texture turns blurry when zoomed in.
-    map.addSource('relief', { type: 'image', url: `${DATA}/relief.webp`, coordinates: RELIEF_BOUNDS });
+    map.addSource('relief', { type: 'image', url: dataUrl('relief.webp'), coordinates: RELIEF_BOUNDS });
     map.addLayer({ id: 'relief', type: 'raster', source: 'relief', paint: { 'raster-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.7, 3.5, 0.55, 5, 0], 'raster-fade-duration': 0, 'raster-resampling': 'linear' } });
     map.addLayer({ id: 'country-line', type: 'line', source: 'outlines', paint: {
       // Heat colours are pale to deep red, so their borders are dark to stay visible on them.

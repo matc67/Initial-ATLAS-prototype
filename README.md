@@ -38,9 +38,12 @@ it only separates equally accurate runs. A wrong click never reveals the answer.
 | Command | What it does |
 | --- | --- |
 | `npm test` | All unit and data tests (`node --test`, no browser needed) |
+| `npm run test:e2e` | Builds, then runs the browser regression tests (`tests/e2e`, Playwright): every game, eight viewports, saved progress, Help, security headers and the City Explorer performance budget. First time: `npx playwright install chromium` |
+| `npm run test:e2e:only` | The browser tests on the existing build |
 | `npm run typecheck` | TypeScript, app and scripts |
 | `npm run build` | Type-checks, then builds the static site into `dist/` |
-| `npm run preview` | Serves `dist/` locally, to check a production build |
+| `npm run preview` | Serves `dist/` locally with Vite, to check a production build |
+| `npm run serve:dist` | Serves `dist/` with the headers in `netlify.toml` (CSP, caching), as Netlify does |
 | `npm run data`, `relief`, `places`, `admin1` | Rebuild the map data in `public/data/` from Natural Earth (only when changing data; needs `data-raw/`) |
 | `npm run cities` | Rebuild the City Rush data in `public/data/cities/` from GeoNames (downloads about 210 MB into `data-raw/geonames/` the first time) |
 | `npm run cities:validate` | Validate the city data and list what changed since the last commit (see `docs/cities.md`) |
@@ -63,8 +66,8 @@ cache headers and security headers. No environment variables are needed.
 1. `npm ci && npm run build`
 2. `npx netlify-cli deploy --dir=dist` for a draft URL; check it, then `npx netlify-cli deploy --dir=dist --prod`.
 
-After deploying, open the site, play a Sprint, refresh mid-Mystery, and open a country's regions in Explore; the
-browser console should show no errors and no failed requests.
+The release checklist, how to verify a deploy, how data versions work across deploys and how to roll back are in
+`docs/deployment.md`.
 
 ## What a visitor downloads
 
@@ -91,6 +94,7 @@ built into `public/data/` by the scripts in `scripts/`; flags from flag-icons (M
 
 - Progress is per browser; there are no accounts or sync.
 - Needs WebGL. Very old devices, or browsers with hardware acceleration off, see a message instead of the globe.
-- `npm audit` reports MapLibre ≤ 6.4 (an XSS in its Popup HTML sanitiser; ATLAS uses no Popups or MapLibre HTML) and
-  sharp (a build-time image tool, not shipped). Upgrading MapLibre to 6.x is a planned follow-up.
+- `npm audit` reports MapLibre (GHSA-jrc7-96c5-q579, an attribution sanitiser bypass; ATLAS uses 5.24.1, which has
+  the fix, and has no attribution control or MapLibre HTML) and sharp (a build-time image tool, not shipped). See
+  `docs/deployment.md`. Upgrading MapLibre to 6.x is a planned follow-up.
 - Disputed boundaries follow Natural Earth's de facto lines; Explore states each country's political status.

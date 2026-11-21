@@ -1,7 +1,7 @@
 // City Rush and City Explorer: the screens around the rules in game/cityRush.ts. This component owns the run (setup,
 // playing, results), its saved data and its feedback; the globe only draws what it is given (GlobeView.setRushCities),
 // and App only highlights the chosen country and forwards globe clicks here.
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject } from 'react';
 import type { AudioManager } from '../audio';
 import type { Country } from '../data/countries';
 import { bookOf, loadCityFile, loadCityIndex, type CityFile, type CityIndex } from '../data/cities';
@@ -43,6 +43,7 @@ type Props = {
   shapeOf: (id: string) => GeoJSON.Geometry | null;
   start: { country: string | null; key: number };
   audio: AudioManager; sound: boolean; onSound: () => void;
+  help: boolean; onHelp: (c: { mode: RushMode; durationMs: number | null; country: string }) => void;
   handlers: MutableRefObject<RushHandlers>;
   onHighlight: (h: { selected: string | null; playable: Set<string> | null }) => void;
   onPhase: (p: RushPhase) => void;
@@ -97,12 +98,12 @@ export default function CityRush(p: Props) {
   const [confirm, setConfirm] = useState<'end' | 'abandon' | 'reset' | null>(null);
   const learningRef = useRef<LearningStore>(loadLearning());
   const [lesson, setLesson] = useState<Lesson | null>(null);
+  const [peek, setPeek] = useState(false);   // phones: results folded down to one line to see the map
   const [subIndex, setSubIndex] = useState<SubdivisionIndex | null>(null);
   const [showRegions, setShowRegionsState] = useState(loadShowRegions);
   const setShowRegions = (on: boolean) => { setShowRegionsState(on); saveShowRegions(on); };
   const [shareNote, setShareNote] = useState('');
   const [shareFallback, setShareFallback] = useState('');
-  const [, setTick] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const fxKey = useRef(0);
 
@@ -178,13 +179,13 @@ export default function CityRush(p: Props) {
   const regionToggle = regionsOk && <label className="rush-toggle"><input type="checkbox" checked={showRegions} onChange={e => setShowRegions(e.target.checked)} /> Show regions</label>;
 
   // ---- The clock -------------------------------------------------------------------------------------------------------
-  // Redraws a few times a second; the time itself always comes from Date.now() against the deadline, never from ticks.
+  // Watches the deadline a few times a second. It renders nothing: the time on screen is RushClock's, which redraws only
+  // itself, so a long City Explorer list is never rebuilt by the clock. Time always comes from Date.now(), never ticks.
   useEffect(() => {
     if (phase !== 'playing') return;
     const id = setInterval(() => {
       const r = rushRef.current;
       if (r && r.phase === 'playing' && isExpired(r, Date.now())) finish(r);
-      setTick(t => t + 1);
     }, 250);
     return () => clearInterval(id);
   }, [phase, data]);
@@ -260,6 +261,7 @@ export default function CityRush(p: Props) {
     commit(r);
     setResult(null);
     setLesson(null);
+    setPeek(false);
     setFeedback(null);
     setParty(null);
     setWelcome('');
@@ -393,6 +395,7 @@ export default function CityRush(p: Props) {
 
   function lookAt(c: RushCity, fly: boolean) {
     globe?.freshen([c.id]);
+    if (rushRef.current?.phase === 'done' && isSmall()) setPeek(true);
     if (fly && globe) globe.fly({ center: [c.lng, c.lat], zoom: Math.max(globe.map.getZoom(), 5) }, 800);
   }
 
@@ -466,7 +469,6 @@ export default function CityRush(p: Props) {
   const coverage = coverageOf(people, total);
   const shownPeople = useTween(people, 600);
   const shownCoverage = coverageOf(shownPeople, total);
-  const left = rush ? remainingMs(rush, now) : 0;
   // The personal best that matters: the run's own duration once one is on, else the duration chosen on setup.
   const recordFor = (sec: number) => (country && data && data.file.country === country ? timed[timedKey(country, sec * 1000, data.file.version)] : undefined);
   const record = rush?.durationMs ? recordFor(rush.durationMs / 1000) : choice === 'explorer' ? undefined : recordFor(choice);
@@ -477,12 +479,17 @@ export default function CityRush(p: Props) {
   const gainNote = (f: { c: RushCity; gain: number }) => f.gain > 0 ? `+${formatPeople(f.gain)}`
     : f.c.population <= 0 ? 'no figure' : `in ${data?.book.cities.get(f.c.partOf ?? '')?.name ?? 'its city'}`;
 
+  // Rows are memoised and the click goes through a ref, so adding a city renders one new row, not the whole list again.
+  const lookRef = useRef(lookAt);
+  lookRef.current = lookAt;
+  const onLook = useMemo(() => (c: RushCity, fly: boolean) => lookRef.current(c, fly), []);
   const list = (fly: boolean) => <ol className="rush-found">
-    {[...found].reverse().map(f => <li key={f.c.id}><button onClick={() => lookAt(f.c, fly)}>
-      <span className="name">{f.c.name}</span>
-      <span className="meta">{f.c.admin1 && <>{f.c.admin1} · </>}<b title={f.gain > 0 ? `${exactPeople(f.gain)} people` : undefined}>{gainNote(f)}</b></span>
-    </button></li>)}
+    {[...found].reverse().map(f => <FoundRow key={f.c.id} c={f.c} gain={f.gain} note={gainNote(f)} fly={fly} onLook={onLook} />)}
   </ol>;
+
+  // The list as it stands, rebuilt only when a city is found: typing and the clock never touch it, which keeps a long
+  // City Explorer session (thousands of cities) responsive.
+  const playingList = useMemo(() => (data && count ? list(rush?.mode === 'explorer') : null), [found, data, rush?.mode]);
 
   return <>
     {phase === 'setup' && <aside className="card panel rush-setup" aria-label="City Rush">
@@ -527,11 +534,12 @@ export default function CityRush(p: Props) {
       <section className="hud rush-hud" aria-label="City Rush">
         {feedback && <span className={`hud-flash ${party?.key === feedback.key || feedback.kind === 'learned' ? 'gold' : feedback.kind === 'new' ? 'good' : feedback.kind === 'unknown' ? 'bad' : ''}`} key={feedback.key} aria-hidden="true" />}
         <div className="hud-top">
-          <span className="hud-area"><Flag iso2={target.iso2} /><span className="mode-name">{rushName(rush.durationMs)} · </span>{target.name}</span>
+          <span className="hud-area"><Flag iso2={target.iso2} /><span className="mode-name">{rushName(rush.durationMs)} · </span><span className="country-name">{target.name}</span></span>
           <span className="spacer" />
           <button className={listOpen ? 'icon-btn on' : 'icon-btn'} aria-label={listOpen ? 'Hide your cities' : 'Show your cities'} aria-pressed={listOpen} onClick={() => setListOpen(!listOpen)}><Icon name="list" /></button>
           {regionsOk && <button className={showRegions ? 'icon-btn on' : 'icon-btn'} aria-label={showRegions ? 'Hide regions' : 'Show regions'} aria-pressed={showRegions} title="Show regions" onClick={() => setShowRegions(!showRegions)}><Icon name="layers" /></button>}
-          <button className="icon-btn" data-silent aria-label={p.sound ? 'Mute sounds' : 'Turn sounds on'} aria-pressed={p.sound} onClick={p.onSound}><Icon name={p.sound ? 'sound' : 'mute'} /></button>
+          <button className={p.help ? 'icon-btn on' : 'icon-btn'} aria-label="How to play" aria-expanded={p.help} title="How to play" onClick={() => p.onHelp({ mode: rush.mode, durationMs: rush.mode === 'timed' ? rush.durationMs : null, country: target.name })}><Icon name="help" /></button>
+          <button className="icon-btn sound" data-silent aria-label={p.sound ? 'Mute sounds' : 'Turn sounds on'} aria-pressed={p.sound} onClick={p.onSound}><Icon name={p.sound ? 'sound' : 'mute'} /></button>
           {confirm === 'abandon'
             ? <><button className="btn small danger" onClick={abandon}>Discard run</button><button className="btn small" onClick={() => setConfirm(null)}>Keep playing</button></>
             : <>
@@ -542,9 +550,7 @@ export default function CityRush(p: Props) {
             </>}
         </div>
         <div className="hud-readouts rush-readouts">
-          {rush.mode === 'timed'
-            ? <div className={left <= 30_000 ? 'readout time low' : 'readout time'} role="timer" aria-label={`${formatClock(left, true)} left`}><span>Time left</span><strong>{formatClock(left, true)}</strong></div>
-            : <div className="readout time"><span>Time</span><strong>{formatClock(elapsedMs(rush, now))}</strong></div>}
+          <RushClock rush={rush} />
           <div className="readout score" aria-label={`City population coverage ${formatCoverage(coverage)}`}><span>Coverage</span>
             <strong className={gained ? 'up' : ''} key={gained ? feedback!.key : 'n'}>{formatCoverage(shownCoverage)}</strong>
             {gained && <em className="gain" key={`g${feedback!.key}`} aria-hidden="true">+{formatPeople(feedback!.gain!)}</em>}
@@ -577,10 +583,15 @@ export default function CityRush(p: Props) {
 
     {phase === 'playing' && listOpen && data && <aside className="card panel rush-list" aria-label="Your cities">
       <div className="card-head"><div className="eyebrow">Your cities · {count.toLocaleString()}</div><button className="close" aria-label="Hide your cities" onClick={() => setListOpen(false)}>×</button></div>
-      {count ? list(rush?.mode === 'explorer') : <p className="muted">Every city you name lands here and on the globe, with the people it adds.</p>}
+      {count ? playingList : <p className="muted">Every city you name lands here and on the globe, with the people it adds.</p>}
     </aside>}
 
-    {phase === 'done' && rush && target && data && <aside className="card panel rush-results" aria-label="Results">
+    {phase === 'done' && rush && target && data && <aside className={peek ? 'card panel rush-results peek' : 'card panel rush-results'} aria-label="Results">
+      {/* Phones: the results can step down to one line, so the map (and the missed cities on it) can be seen whole. */}
+      <div className="results-peek">
+        <span><b>{formatCoverage(coverage)}</b> · {target.name}</span>
+        <button className="btn small" aria-expanded={!peek} onClick={() => setPeek(!peek)}>{peek ? 'Show results' : 'Show map'}</button>
+      </div>
       <div className="eyebrow">{rush.mode === 'timed' ? `${rushName(rush.durationMs)} · ${durationLabel(rush.durationMs!)}` : 'City Explorer'}</div>
       <h1 className="with-flag"><Flag iso2={target.iso2} size="lg" />{target.name}</h1>
       {result?.newBest && <div className="record"><Burst />New personal best<span>Up from {formatCoverage(coverageOf(result.before ?? 0, total))}.</span></div>}
@@ -641,6 +652,25 @@ export default function CityRush(p: Props) {
 
     {hoverCity && <div className="hover-name city"><Icon name="city" />{hoverCity.name}<small>{[hoverCity.admin1, hoverCity.population > 0 ? `${formatPeople(hoverCity.population)} people` : ''].filter(Boolean).join(' · ')}</small></div>}
   </>;
+}
+
+// One found city in the list: its name, region and the people it added. Clicking it shows it on the globe.
+const FoundRow = memo(function FoundRow({ c, gain, note, fly, onLook }: { c: RushCity; gain: number; note: string; fly: boolean; onLook: (c: RushCity, fly: boolean) => void }) {
+  return <li><button onClick={() => onLook(c, fly)}>
+    <span className="name">{c.name}</span>
+    <span className="meta">{c.admin1 && <>{c.admin1} · </>}<b title={gain > 0 ? `${exactPeople(gain)} people` : undefined}>{note}</b></span>
+  </button></li>;
+});
+
+// The time on screen: a countdown for a timed run (red in the last 30 seconds), time played for City Explorer. It redraws
+// itself a few times a second; nothing else on the screen re-renders with it.
+function RushClock({ rush }: { rush: Rush }) {
+  const [, setTick] = useState(0);
+  useEffect(() => { const id = setInterval(() => setTick(t => t + 1), rush.mode === 'timed' ? 250 : 1000); return () => clearInterval(id); }, [rush.mode]);
+  const now = Date.now();
+  if (rush.mode !== 'timed') return <div className="readout time"><span>Time</span><strong>{formatClock(elapsedMs(rush, now))}</strong></div>;
+  const left = remainingMs(rush, now);
+  return <div className={left <= 30_000 ? 'readout time low' : 'readout time'} role="timer" aria-label={`${formatClock(left, true)} left`}><span>Time left</span><strong>{formatClock(left, true)}</strong></div>;
 }
 
 // This run against the previous completed one (same country and mode). Neutral when it went down.

@@ -32,7 +32,9 @@ button:disabled { cursor: default; }
 h1, h2 { font-family: 'Space Grotesk', sans-serif; margin: 0; letter-spacing: -0.01em; }
 p { margin: 0; }
 
-.app { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #0a1d3c 0%, #040c1d 55%, var(--bg) 100%); }
+/* Clipped rather than hidden where supported: a hidden box can still be scrolled by focus() or scrollIntoView, which slid
+   the whole game sideways when Help took focus. */
+.app { position: fixed; inset: 0; overflow: hidden; overflow: clip; background: radial-gradient(ellipse at 50% 45%, #0a1d3c 0%, #040c1d 55%, var(--bg) 100%); }
 .starfield { position: absolute; inset: 0; width: 100%; height: 100%; }
 .map { position: absolute; inset: 0; }
 .maplibregl-map { font-family: inherit; }
@@ -185,6 +187,8 @@ h1.with-flag { display: flex; align-items: center; gap: 12px; }
 
 /* Gameplay HUD: top centre and compact, the target's name is the focal point. */
 .hud { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: min(540px, calc(100vw - 220px)); padding: 10px 16px; border-radius: 16px; display: grid; gap: 6px; animation: drop-in 0.25s ease-out; }
+/* Each row may shrink to the panel, so a long title gives way (ellipsis) rather than pushing its buttons off screen. */
+.hud > * { min-width: 0; }
 .hud-top { display: flex; align-items: center; gap: 10px; }
 .hud-area { font-size: 10.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap; }
 .hud-top .bar { flex: 1; height: 4px; }
@@ -622,6 +626,8 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
   .rush-list-open .rush-hud .mode-name { display: none; }
   .rush-list-open .rush-hud .hud-top { flex-wrap: nowrap; gap: 4px; }
 }
+/* The panel and the answer field shrink to the column (the country name gives way first), never past the screen. */
+.rush-top > * { min-width: 0; }
 .rush-top .hud, .rush-top .answer-bar { position: relative; top: auto; left: auto; bottom: auto; transform: none; width: auto; animation: rush-in 0.25s ease-out; }
 @keyframes rush-in { from { opacity: 0; transform: translateY(-6px); } }
 .rush-hud .hud-area { display: inline-flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -741,3 +747,103 @@ button.readout { font: inherit; color: inherit; text-align: left; cursor: defaul
 .challenge.city-rush .challenge-icon { color: #86efac; background: rgba(74, 222, 128, 0.12); }
 /* The milestone toast hangs below the input, never over it. */
 .rush-top > .celebrate { top: calc(100% + 10px); }
+
+/* ---- Game first ------------------------------------------------------------------------------------------------------
+   While a game is in progress (.playing: a round, a mystery or a City Rush), phones and short screens give the globe the
+   screen: the section navigation, logo and zoom buttons step aside (each game has its own exit, and pinch zooms), the
+   game's panel moves to the top edge and the answer field to the bottom edge, inside the safe areas. Menus and results
+   keep the navigation. */
+@media (max-width: 760px) {
+  .playing .rail, .playing .topbar, .playing .zoom { display: none; }
+  .playing .hud:not(.rush-hud), .playing .rush-top { top: max(10px, env(safe-area-inset-top)); }
+  .playing .answer-bar, .playing .mystery-search { bottom: max(12px, env(safe-area-inset-bottom)); }
+  .playing .region-nav { bottom: max(16px, env(safe-area-inset-bottom)); }
+  .playing.has-answer-bar .region-nav { bottom: 76px; }
+  .playing .mystery-panel { bottom: 76px; }
+  .playing .rush-list { bottom: max(12px, env(safe-area-inset-bottom)); }
+  .playing .hover-name.city { bottom: 24px; }
+  .playing.rush-list-open .hover-name.city { bottom: calc(40vh + 28px); }
+  /* A tighter round panel: the same information, less height. Its top row stays one line: the area label gives way
+     (ellipsis) before any button wraps onto a second row. */
+  .playing .hud:not(.rush-hud) { gap: 4px; padding: 8px 10px; }
+  .playing .hud:not(.rush-hud) .hud-top { flex-wrap: nowrap; gap: 6px; }
+  .playing .hud:not(.rush-hud) .hud-area { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .playing .hud:not(.rush-hud) .hud-top .bar { min-width: 16px; }
+  .playing .hud-main { min-height: 38px; }
+  .playing .hud-name h2 { font-size: 20px; }
+  .playing .hud-line { min-height: 34px; padding-top: 5px; }
+  /* The game menu: one title (the area is already the selected tab), no repeated descriptions on the cards. */
+  .play-menu > h1, .play-menu .points-hint, .play-menu .challenge-body span { display: none; }
+  .play-menu { gap: 10px; }
+  .play-menu .challenge { padding: 9px 12px; align-items: center; }
+  .play-menu .challenge-icon { width: 30px; height: 30px; }
+  /* A milestone is a small pill under the panel, never a box over the middle of the globe. */
+  .celebrate { padding: 4px 12px; border-radius: 999px; }
+  .celebrate strong, .celebrate.t3 strong, .celebrate.t4 strong { font-size: 14px; }
+  .celebrate small, .celebrate .sparks { display: none; }
+}
+@media (max-width: 360px) {
+  /* The count ("3 / 10") already shows progress: the bar gives its room to the area label. */
+  .playing .hud:not(.rush-hud) .hud-top .bar { display: none; }
+  .rush-hud .country-name { display: none; }
+  .rush-hud .hud-top .btn.small { padding: 6px 8px; font-size: 12px; }
+}
+/* Short screens (a phone held sideways): the same, and the round panel in two columns: the question beside the scores. */
+@media (min-width: 761px) and (max-height: 520px) {
+  .playing .rail, .playing .topbar, .playing .zoom { display: none; }
+  .playing .hud:not(.rush-hud):not(.mystery-hud) { top: 8px; width: min(680px, calc(100vw - 32px)); }
+  /* Mystery: its panel on the left, the guess history on the right. */
+  .playing .mystery-hud { top: 8px; left: 16px; transform: none; width: calc(100vw - 300px - 48px); }
+  .playing .mystery-panel { top: 8px; right: 16px; width: 300px; max-height: calc(100vh - 80px); }
+  .celebrate { padding: 4px 12px; border-radius: 999px; }
+  .celebrate strong, .celebrate.t3 strong, .celebrate.t4 strong { font-size: 14px; }
+  .celebrate small, .celebrate .sparks { display: none; }
+  .playing .hud:not(.rush-hud):not(.mystery-hud) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); column-gap: 12px; align-items: center; padding: 8px 12px; gap: 4px 12px; }
+  .playing .hud:not(.rush-hud):not(.mystery-hud) > .hud-top, .playing .hud:not(.rush-hud):not(.mystery-hud) > .hud-line { grid-column: 1 / -1; }
+  .playing .hud-main { min-height: 0; justify-content: flex-start; }
+  .playing .hud-name h2 { font-size: 22px; }
+  .playing .hud-line { min-height: 30px; padding-top: 4px; }
+  .playing .readout strong { font-size: 19px; }
+  .playing .answer-bar, .playing .mystery-search { bottom: 10px; }
+  .playing .rush-top { top: 8px; width: min(560px, calc(100vw - 32px)); }
+  .playing.rush-list-open .rush-top { left: 16px; width: calc(100vw - 280px - 44px); }
+  .play-menu > h1, .play-menu .points-hint, .play-menu .challenge-body span { display: none; }
+  .play-menu .challenge { padding: 8px 12px; align-items: center; }
+}
+/* Touch: icon buttons and close buttons get a ~40px target without growing the panel they sit in. */
+@media (pointer: coarse) {
+  .icon-btn, .hud-top .close, .card-head .close { min-width: 40px; min-height: 40px; margin: -9px -5px; }
+  .card-head .close { margin: -10px -10px -10px 0; }
+  .hud-meta .link { padding: 12px 6px; margin: -12px -6px; }
+  .rush-hud .hud-top .btn.small { min-height: 40px; margin: -2px 0; }
+}
+
+/* Results on phones (rounds, Mystery, City Rush): a one-line summary that folds the sheet down to show the map ("Show
+   map"). Hidden on larger screens, where the results sit beside the globe. */
+.results-peek { display: none; }
+@media (max-width: 760px) {
+  .panel .results-peek { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13.5px; color: var(--ink-2); }
+  .panel .results-peek b { color: var(--gold); font-family: 'Space Grotesk', sans-serif; font-size: 18px; }
+  .panel.peek { max-height: none; overflow: visible; padding: 10px 14px; }
+  .panel.peek > :not(.results-peek) { display: none; }
+}
+
+/* Help during a game: the rules of the game on screen, opened from its own panel. On phones it rises from the bottom
+   edge, so the game's panel stays in view; on short screens it sits on the right. */
+.how.now li { position: relative; padding-left: 14px; }
+.how.now li::before { content: ''; position: absolute; left: 2px; top: 0.55em; width: 5px; height: 5px; border-radius: 50%; background: var(--gold); }
+@media (max-width: 760px) {
+  .playing .help { bottom: max(12px, env(safe-area-inset-bottom)); max-height: calc(100vh - 220px); z-index: 6; }
+  .playing .help .key { display: none; }
+}
+@media (max-width: 360px) {
+  /* The narrowest phones: sound is in Help, so City Rush's panel keeps one button fewer. */
+  .rush-hud .icon-btn.sound { display: none; }
+}
+@media (min-width: 761px) and (max-height: 520px) {
+  .playing .help { left: auto; right: 16px; top: 8px; transform: none; max-height: calc(100vh - 16px); }
+}
+
+/* A newer release replaced this page's data (data/release.ts). */
+.update-note { position: fixed; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translateX(-50%); z-index: 20; display: grid; gap: 10px; width: min(420px, calc(100vw - 24px)); padding: 14px 16px; border-radius: 12px; background: rgba(8, 18, 36, 0.97); border: 1px solid var(--gold); font-size: 14px; line-height: 1.45; text-align: center; }
+.update-note p { margin: 0; }

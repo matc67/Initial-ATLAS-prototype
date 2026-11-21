@@ -13,7 +13,7 @@ type HudProps = {
   setLabel: string; held: boolean; stats: MysteryStats; closestName: string | null;
   message: string; latest: { name: string; km: number | null; trend: string } | null;
   historyOpen: boolean; onToggleHistory: () => void;
-  sound: boolean; onSound: () => void; onHold: (held: boolean) => void; onEnd: () => void;
+  sound: boolean; onSound: () => void; help: boolean; onHelp: () => void; onHold: (held: boolean) => void; onEnd: () => void;
 };
 
 // The top HUD: guesses, time and closest guess, and what the last guess told you.
@@ -23,6 +23,7 @@ export function MysteryHud(p: HudProps) {
     <div className="hud-top">
       <span className="hud-area"><Icon name="mystery" />Mystery Country · {p.setLabel}</span>
       <span className="hud-spacer" />
+      <button className={p.help ? 'icon-btn on' : 'icon-btn'} aria-label="How to play" aria-expanded={p.help} title="How to play" onClick={p.onHelp}><Icon name="help" /></button>
       <button className="icon-btn" data-silent aria-label={p.sound ? 'Mute sounds' : 'Turn sounds on'} aria-pressed={p.sound} onClick={p.onSound}><Icon name={p.sound ? 'sound' : 'mute'} /></button>
       <button className="icon-btn" aria-label={p.held ? 'Resume' : 'Pause'} onClick={() => p.onHold(!p.held)}><Icon name={p.held ? 'play-small' : 'pause'} /></button>
       <button className="close" aria-label="Leave this mystery" onClick={p.onEnd}>×</button>

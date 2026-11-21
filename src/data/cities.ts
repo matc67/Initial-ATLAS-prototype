@@ -3,6 +3,7 @@
 // country's file loads only when that country is chosen. See docs/cities.md.
 import type { LngLat } from '../game/geo';
 import { buildBook, type CityBook, type RushCity } from '../game/cityMatch.ts';
+import { fetchData } from './release.ts';
 
 // A compact row per city, largest first: GeoNames id, name, longitude, latitude, population (0 when GeoNames has none),
 // index into `admin1`, the reviewed aliases (absent when there are none and the city is no part; [] when it is a part), and
@@ -45,26 +46,19 @@ export const citiesOf = (f: CityFile): RushCity[] => f.cities.map(r => cityRow(r
 export const regionNamesOf = (f: Pick<CityFile, 'admin1' | 'regions'>): string[][] => f.admin1.map((n, i) => [n, ...(f.regions?.[i] ?? [])]);
 export const bookOf = (f: CityFile): CityBook => buildBook(citiesOf(f), regionNamesOf(f), f.nearby ?? []);
 
-const base = () => import.meta.env?.BASE_URL ?? '/';
-function fetchJson<T>(path: string): Promise<T> {
-  return fetch(`${base()}${path}`).then(res => {
-    if (!res.ok) throw new Error(`Could not load ${path} (${res.status}).`);
-    return res.json() as Promise<T>;
-  });
-}
 
 // One promise per file, so reopening a country is instant. A failed load is forgotten, so it can be retried.
 let index: Promise<CityIndex> | null = null;
 const files = new Map<string, Promise<CityFile>>();
 export function loadCityIndex(): Promise<CityIndex> {
-  index ??= fetchJson<CityIndex>('data/cities/index.json');
+  index ??= fetchData<CityIndex>('cities/index.json');
   index.catch(() => { index = null; });
   return index;
 }
 export function loadCityFile(countryId: string): Promise<CityFile> {
   let p = files.get(countryId);
   if (!p) {
-    p = fetchJson<CityFile>(`data/cities/${countryId}.json`);
+    p = fetchData<CityFile>(`cities/${countryId}.json`);
     files.set(countryId, p);
     p.catch(() => files.delete(countryId));
   }

@@ -6,6 +6,7 @@ import type { GeometryCollection, Topology } from 'topojson-specification';
 import type { LngLat } from '../game/geo';
 import type { AdminTerms } from './entities';
 import type { Playable } from '../game/playable';
+import { fetchData } from './release.ts';
 
 export type SubdivisionMeta = {
   enabled: boolean;
@@ -66,13 +67,9 @@ export function describeCount(meta: Pick<SubdivisionMeta, 'kinds' | 'terms' | 'c
   return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
 }
 
-const base = () => import.meta.env?.BASE_URL ?? '/';
 let indexPending: Promise<SubdivisionIndex> | null = null;
 export function loadSubdivisionIndex(): Promise<SubdivisionIndex> {
-  indexPending ??= fetch(`${base()}data/admin1/index.json`).then(res => {
-    if (!res.ok) throw new Error(`Could not load the subdivision index (${res.status}).`);
-    return res.json();
-  });
+  indexPending ??= fetchData<SubdivisionIndex>('admin1/index.json');
   indexPending.catch(() => { indexPending = null; });   // a failed load can be retried
   return indexPending;
 }
@@ -85,9 +82,7 @@ export function loadSubdivisions(countryId: string): Promise<SubdivisionSet> {
     p = loadSubdivisionIndex().then(async index => {
       const meta = index.countries[countryId];
       if (!meta) throw new Error(`No subdivisions for ${countryId}.`);
-      const res = await fetch(`${base()}data/${meta.file}?v=${index.version}`);
-      if (!res.ok) throw new Error(`Could not load ${meta.file} (${res.status}).`);
-      return decodeSubdivisions(countryId, meta, await res.json());
+      return decodeSubdivisions(countryId, meta, await fetchData<Topo>(meta.file));
     });
     p.catch(() => sets.delete(countryId));
     sets.set(countryId, p);

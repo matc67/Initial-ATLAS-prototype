@@ -43,6 +43,8 @@ import { afterRound, backToCountry, clickCountry, clickNothing, hasRegions, open
 import { loadSubdivisionIndex, loadSubdivisions, playableIds, subdivisionPlayables, type SubdivisionIndex, type SubdivisionSet } from './data/subdivisions';
 import { PACIFIC_VIEWS, type RegionView } from './map/regions';
 import { COLORS, GlobeView, type Camera, type Land, type StatusMap, type Theme } from './map/GlobeView';
+import { UPDATE_EVENT } from './data/release';
+import { helpTopic, type HelpContext } from './game/helpTopics';
 
 type View = 'explore' | 'play' | 'progress';
 // A Mystery Country puzzle in the app: the rules' Mystery plus what the screen needs around it.
@@ -117,6 +119,15 @@ export default function App() {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [guess, setGuess] = useState('');
   const [help, setHelp] = useState(false);
+  // Help opened from a game's own HUD: what it was opened from gets focus back when Help closes.
+  const helpOpener = useRef<HTMLElement | null>(null);
+  const helpPanel = useRef<HTMLElement | null>(null);
+  const [rushHelp, setRushHelp] = useState<Extract<HelpContext, { kind: 'rush' }> | null>(null);
+  const openHelp = () => { helpOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setHelp(true); };
+  // Phones: results folded down to one line, so the answers on the globe can be seen (as City Rush's results).
+  const [resultsPeek, setResultsPeek] = useState(false);
+  // A newer release replaced this page's data (data/release.ts): say so instead of failing quietly.
+  const [updated, setUpdated] = useState(false);
   const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
   const [, setTick] = useState(0);
   const [perf, setPerf] = useState(loadPerformance);
@@ -242,17 +253,18 @@ export default function App() {
   // Centre the globe in the open space: beside the side panel, or under the question card during a round.
   useEffect(() => {
     const pad = (animate: boolean) => globeRef.current?.setPadding(rushPlaying
-      ? (isMobile() ? { left: 0, right: 0, top: 250, bottom: rushListOpen ? window.innerHeight * 0.4 + 90 : 90 }
+      ? (isMobile() ? { left: 0, right: 0, top: 210, bottom: rushListOpen ? window.innerHeight * 0.4 + 20 : 20 }
         : window.innerHeight <= 520 ? { left: 90, right: 90, top: 200, bottom: 10 }
         : { left: 90, right: rushListOpen && window.innerWidth >= 1180 ? 360 : 90, top: 250, bottom: 50 })
       : isMobile()
-      ? { left: 0, right: 0, top: inRound ? 236 : mysteryPlaying ? 200 : 110, bottom: inRound ? 130 : mysteryPlaying ? 150 : subOpen ? window.innerHeight * 0.34 + 100 : window.innerHeight * 0.42 }
+      // In a game the navigation steps aside (see .playing in style.css): the globe gets the space under the panel.
+      ? { left: 0, right: 0, top: inRound ? 196 : mysteryPlaying ? 160 : 110, bottom: inRound ? (game?.mode === 'name' ? 70 : 20) : mysteryPlaying ? 80 : subOpen ? window.innerHeight * 0.34 + 100 : window.innerHeight * 0.42 }
       : inRound ? { left: 100, right: 100, top: 236, bottom: 100 } : mysteryPlaying ? { left: 100, right: 360, top: 200, bottom: 110 } : { left: 110, right: 370, top: 90, bottom: 60 }, animate);
     pad(true);
     const onResize = () => pad(false);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [inRound, mysteryPlaying, subOpen, rushPlaying, rushListOpen]);
+  }, [inRound, mysteryPlaying, subOpen, rushPlaying, rushListOpen, game?.mode]);
   // Frames a subdivision view once its padding is in place (this runs after the padding effect above).
   useEffect(() => {
     if (subView) globeRef.current?.frame(subView.set.meta.frame.center, subView.set.meta.frame.radiusKm, 1200);
@@ -808,6 +820,12 @@ export default function App() {
   const unitsWord = (g: Game) => (g.sub ? g.sub.meta.terms.plural : 'countries');
   const modeLabel = (g: Game) => (g.sub ? (g.mode === 'find' ? 'Find the Region' : 'Name the Region') : MODE_LABEL[g.mode]);
 
+  // The rules of the game on screen, shown first in Help while it is played.
+  const helpCtx: HelpContext | null = inRound && game
+    ? { kind: 'round', mode: game.mode, sprint: game.kind === 'sprint', unit: unitWord(game), units: unitsWord(game), scope: game.sub ? backName(game) : game.area === 'World' ? 'the whole world' : areaShort(game.area), regions: !!game.sub }
+    : mysteryPlaying ? { kind: 'mystery' } : rushPlaying ? rushHelp : null;
+  const topic = helpCtx && helpTopic(helpCtx);
+
   const answerBar = inRound && game?.mode === 'name' && round?.phase === 'asking' && !game.held;
   // Mystery Country on screen: its numbers, the countries it can take as guesses, and the record for the chosen set.
   const mStats = mystery && mysteryStats(mystery.m, performance.now());
@@ -833,7 +851,30 @@ export default function App() {
     const b = (e.target as HTMLElement).closest('button');
     if (b && !b.disabled && !b.closest('[data-silent]')) audio.play({ kind: 'ui' });
   };
-  return <div className={`app${inRound ? ' in-round' : ''}${mysteryPlaying ? ' in-mystery' : ''}${inRush ? ' in-rush' : ''}${rushPlaying ? ' rush-playing' : ''}${rushPlaying && rushListOpen ? ' rush-list-open' : ''}${answerBar || searchBar ? ' has-answer-bar' : ''}`} onClick={uiClick}>
+  // Help takes focus when it opens, and gives it back to what opened it when it closes.
+  useEffect(() => {
+    if (help) { helpPanel.current?.querySelector<HTMLElement>('.card-head .close')?.focus({ preventScroll: true }); return; }
+    const back = helpOpener.current;
+    helpOpener.current = null;
+    if (back?.isConnected) back.focus({ preventScroll: true });
+  }, [help]);
+  useEffect(() => {
+    const on = () => setUpdated(true);
+    window.addEventListener(UPDATE_EVENT, on);
+    return () => window.removeEventListener(UPDATE_EVENT, on);
+  }, []);
+  // `playing`: a game is in progress (a round, a mystery or a City Rush). On phones and short screens the section
+  // navigation, logo and zoom buttons step aside then, so the globe has the screen; each game has its own exit.
+  const playing = inRound || mysteryPlaying || rushPlaying;
+  // Which results are on screen; each new set opens unfolded.
+  const roundDone = view === 'play' && !!game && round?.phase === 'done' && !!stats;
+  const mysterySolved = inMystery && mystery!.m.phase === 'solved';
+  useEffect(() => { setResultsPeek(false); }, [roundDone, mysterySolved, game?.round.queue, mystery?.m.answer]);
+  const peekRow = (summary: ReactNode) => <div className="results-peek">
+    <span>{summary}</span>
+    <button className="btn small" aria-expanded={!resultsPeek} onClick={() => setResultsPeek(!resultsPeek)}>{resultsPeek ? 'Show results' : 'Show map'}</button>
+  </div>;
+  return <div className={`app${playing ? ' playing' : ''}${inRound ? ' in-round' : ''}${mysteryPlaying ? ' in-mystery' : ''}${inRush ? ' in-rush' : ''}${rushPlaying ? ' rush-playing' : ''}${rushPlaying && rushListOpen ? ' rush-list-open' : ''}${answerBar || searchBar ? ' has-answer-bar' : ''}`} onClick={uiClick}>
     <Starfield />
     <div className="atmosphere" ref={glowDiv} />
     <div className="map" ref={mapDiv} />
@@ -851,12 +892,13 @@ export default function App() {
       {([['explore', 'Explore', 'globe'], ['play', 'Play', 'play'], ['progress', 'Progress', 'bars']] as const).map(([v, label, icon]) =>
         <button key={v} className={view === v ? 'active' : ''} onClick={() => { setView(v); setSelected(null); setSelectedLand(null); setHoverId(null); }}><Icon name={icon} /><span>{label}</span></button>)}
       <span className="rail-sep" />
-      <button className={help ? 'active' : ''} aria-expanded={help} onClick={() => setHelp(h => !h)}><Icon name="help" /><span>Help</span></button>
+      <button className={help ? 'active' : ''} aria-expanded={help} onClick={() => (help ? setHelp(false) : openHelp())}><Icon name="help" /><span>Help</span></button>
     </nav>
 
-    {help && <aside className="card help" aria-label="Help">
-      <div className="card-head"><strong>How to play</strong><button className="close" aria-label="Close help" onClick={() => setHelp(false)}>×</button></div>
-      <ul className="how">
+    {help && <aside className={topic ? 'card help in-game' : 'card help'} aria-label="Help" ref={helpPanel}>
+      <div className="card-head"><strong>{topic ? topic.title : 'How to play'}</strong><button className="close" aria-label="Close help" onClick={() => setHelp(false)}>×</button></div>
+      {topic && <ul className="how now">{topic.rules.map(r => <li key={r}>{r}</li>)}</ul>}
+      {!topic && <><ul className="how">
         <li><b>Find it</b> We name a country; click it on the globe.</li>
         <li><b>Name it</b> A country lights up in gold; type its name.</li>
         <li><b>Flags</b> We show a flag; click its country.</li>
@@ -864,15 +906,16 @@ export default function App() {
         <li><b>City Rush</b> Pick a country and type its cities: each one appears on the globe and adds its people. 3, 5, 10 or 20 minutes, or no clock in City Explorer.</li>
         <li><b>Regions</b> States and provinces: open a country in Explore.</li>
       </ul>
-      <p className="fine">A wrong click never shows the answer. Use Show me if you are stuck (0 points). Drag to turn the globe, scroll or pinch to zoom.</p>
-      <strong className="help-sub">On the map</strong>
+      <p className="fine">A wrong click never shows the answer. Use Show me if you are stuck (0 points). Drag to turn the globe, scroll or pinch to zoom.</p></>}
+      {(!helpCtx || helpCtx.kind === 'round') && <><strong className="help-sub">On the map</strong>
       <ul className="key">
         <li><span className="k ring" />Very small countries have a ring you can click.</li>
         <li><span className="k land" />Grey land is not one of the 200 countries.</li>
         <li><span className="k done" />In a round, countries you find turn steel blue.</li>
         <li><span className="k miss" />Dashed red: missed. Gold: the answer.</li>
-      </ul>
-      <p className="fine">Points: {ATTEMPT_POINTS.join(', ')} for the 1st, 2nd and 3rd attempt, then {LATE_POINTS}. Show me gives 0. Streak bonuses for first-try answers in a row: {STREAK_MILESTONES.map(m => `+${m.bonus.toLocaleString()} at ${m.streak}`).join(', ')}. Time never changes points; it only separates runs that are equally accurate.</p>
+      </ul></>}
+      {topic && <p className="fine">Drag to turn the globe, scroll or pinch to zoom.</p>}
+      {!topic && <p className="fine">Points: {ATTEMPT_POINTS.join(', ')} for the 1st, 2nd and 3rd attempt, then {LATE_POINTS}. Show me gives 0. Streak bonuses for first-try answers in a row: {STREAK_MILESTONES.map(m => `+${m.bonus.toLocaleString()} at ${m.streak}`).join(', ')}. Time never changes points; it only separates runs that are equally accurate.</p>}
       <div className="sound-row" data-silent>
         <button className={sound ? 'btn small on' : 'btn small'} aria-pressed={sound} onClick={toggleSound}><Icon name={sound ? 'sound' : 'mute'} />Sound {sound ? 'on' : 'off'}</button>
         <input type="range" min={0} max={1} step={0.05} value={volume} disabled={!sound} aria-label="Volume"
@@ -883,21 +926,22 @@ export default function App() {
     {inRound && game && round && target && stats && <Hud
       kindLabel={game.kind === 'sprint' ? 'Sprint' : null} area={scopeName(game)} mode={game.mode} held={game.held}
       round={round} stats={stats} target={target} unit={unitWord(game)} message={game.message} miss={game.miss} fx={game.fx} now={performance.now()}
-      sound={sound} onSound={toggleSound}
+      sound={sound} onSound={toggleSound} help={help} onHelp={openHelp}
       onHold={hold} onEnd={leaveRound} onReveal={reveal} onNext={next} />}
 
     {mysteryPlaying && mStats && <MysteryHud
       setLabel={mystery!.set === '195' ? 'Classic 195' : '200 countries'} held={mystery!.held} stats={mStats}
       closestName={mStats.closest ? nameOf(mStats.closest.id) : null} message={mystery!.message} latest={mLatest}
       historyOpen={historyOpen} onToggleHistory={() => setHistoryOpen(o => !o)}
-      sound={sound} onSound={toggleSound} onHold={holdMystery} onEnd={leaveMystery} />}
+      sound={sound} onSound={toggleSound} help={help} onHelp={openHelp} onHold={holdMystery} onEnd={leaveMystery} />}
     {searchBar && <MysterySearch entries={mEntries} guessed={mGuessed} disabled={mystery!.held}
       onGuess={id => mysteryGuess(id, 'type')}
       onNoMatch={text => { const g = mysteryRef.current; if (g) commitMystery({ ...g, message: `No country in this game matches “${text}”.` }); }} />}
     {mysteryPlaying && mHistory && <aside className={historyOpen ? 'card panel mystery-panel open' : 'card panel mystery-panel'} aria-label="Guess history">
       <MysteryHistory {...mHistory} />
     </aside>}
-    {inMystery && mystery!.m.phase === 'solved' && mStats && mHistory && countries.get(mystery!.m.answer) && <aside className="card panel">
+    {inMystery && mystery!.m.phase === 'solved' && mStats && mHistory && countries.get(mystery!.m.answer) && <aside className={resultsPeek ? 'card panel peek' : 'card panel'}>
+      {peekRow(<><b>{mStats.guesses}</b> {mStats.guesses === 1 ? 'guess' : 'guesses'} · {countries.get(mystery!.m.answer)!.name}</>)}
       <MysteryResults answer={countries.get(mystery!.m.answer)!} stats={mStats} closestName={mStats.closest ? nameOf(mStats.closest.id) : null}
         first={!mystery!.before || mystery!.before.solved === 0} record={isMysteryRecord(mystery!.bests)}
         best={mystery!.before?.best ? { guesses: mystery!.before.best.guesses, ms: mystery!.before.best.ms } : null}
@@ -914,9 +958,11 @@ export default function App() {
     {inRush && countries.size > 0 && <CityRush
       globe={globeRef.current} countries={countries} shapeOf={id => shapesRef.current.get(id) ?? null} start={rushStart!}
       audio={audio} sound={sound} onSound={toggleSound} handlers={rushHandlers}
+      help={help} onHelp={c => { setRushHelp({ kind: 'rush', ...c }); openHelp(); }}
       onHighlight={setRushHighlight} onPhase={setRushPhase} onListOpen={setRushListOpen} onExit={closeRush} />}
 
-    {!inRound && !inMystery && !inRush && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : view === 'explore' && subView ? 'card panel sub' : 'card panel'}>
+    {!inRound && !inMystery && !inRush && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : view === 'explore' && subView ? 'card panel sub' : view === 'play' && !game ? 'card panel play-menu' : roundDone && resultsPeek ? 'card panel peek' : 'card panel'}>
+      {roundDone && peekRow(<><b>{stats!.score.toLocaleString()}</b> · {scopeName(game!)}</>)}
       {view === 'play' && !game && <>
         {firstVisit && <p className="intro">A geography game on a 3D globe. Pick a way to play, choose an area at the top, and start.</p>}
         <div className="eyebrow">{SET_LABEL[countrySet]}</div>
@@ -926,7 +972,7 @@ export default function App() {
           <button role="radio" aria-checked={mode === 'name'} className={mode === 'name' ? 'on' : ''} onClick={() => setMode('name')}>Name it</button>
           <button role="radio" aria-checked={mode === 'flag'} className={mode === 'flag' ? 'on' : ''} onClick={() => setMode('flag')}>Flags</button>
         </div>
-        <p className="muted">{MODE_HINT[mode]} {ATTEMPT_POINTS[0]} points first try, plus a bonus for 3, 5 or 10 in a row.</p>
+        <p className="muted"><span>{MODE_HINT[mode]}</span> <span className="points-hint">{ATTEMPT_POINTS[0]} points first try, plus a bonus for 3, 5 or 10 in a row.</span></p>
         <ChallengePicker area={areaShort(area)} loading={loading} poolSize={playIds.length}
           sprintBest={sprintRecord} fullBest={record} onSprint={() => startRound({ kind: 'sprint' })} onFull={() => startRound()}
           mysteryBest={mysteryRecord} mysterySize={mEntries.length} onMystery={() => startMystery()}
@@ -1009,6 +1055,13 @@ export default function App() {
       : hoverCountry && <div className="hover-name"><Flag iso2={hoverCountry.iso2} />{hoverCountry.name}</div>}
     <div className="zoom" data-silent><button aria-label="Zoom in" onClick={() => globeRef.current?.zoomBy(1)}>+</button><button aria-label="Zoom out" onClick={() => globeRef.current?.zoomBy(-1)}>−</button></div>
     {loading && <div className="globe-loading" role="status">Loading the globe…</div>}
+    {updated && <div className="update-note" role="alert">
+      <p><strong>ATLAS has been updated.</strong> Reload to continue with the new version. Your saved progress is kept.</p>
+      <div className="error-actions">
+        <button className="btn primary small" onClick={() => location.reload()}>Reload</button>
+        <button className="btn small" onClick={() => setUpdated(false)}>Not now</button>
+      </div>
+    </div>}
     {error && <div className="error" role="alert">
       <p>{error}</p>
       <div className="error-actions">
