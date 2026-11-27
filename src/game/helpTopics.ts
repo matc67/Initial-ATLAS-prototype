@@ -43,7 +43,7 @@ export function helpTopic(c: HelpContext): HelpTopic {
     title: `${name} · ${c.country}`,
     rules: [
       'Type a city and press Enter: it lands on the globe and adds its people to your coverage. Big cities count most.',
-      'A name counts every city of that name at once, one per state or region: “Springfield” finds them all. Add a region for just one: “Springfield, Illinois”.',
+      'A name means the largest city of that name. For another, add its region: “Portland, Maine”.',
       'Coverage is the share of the people living in our list of the country’s cities (places of 1,000 or more), not of its whole population.',
       c.mode === 'timed'
         ? 'The clock keeps running while Help is open. Finish shows your results now; Abandon discards the run.'

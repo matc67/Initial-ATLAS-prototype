@@ -44,14 +44,7 @@ export function watch(page: Page) {
 
 export async function home(page: Page) {
   await page.goto('/');
-  await openMenu(page);
   await expect(page.locator('.challenge.sprint:not([disabled])')).toBeVisible({ timeout: 60_000 });
-}
-// Phones show the game menu as a collapsed bottom sheet on arrival: expand it.
-export async function openMenu(page: Page) {
-  const toggle = page.locator('.play-menu .sheet-toggle');
-  await expect(page.locator('.play-menu')).toBeVisible({ timeout: 60_000 });
-  if (await toggle.isVisible() && (await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
 }
 
 export type RoundMode = 'Find it' | 'Name it' | 'Flags';
@@ -62,7 +55,7 @@ export async function startRound(page: Page, mode: RoundMode, kind: 'sprint' | '
   await expect(page.locator('.hud')).toBeVisible();
 }
 export async function startMystery(page: Page) {
-  await home(page);
+  await page.goto('/');
   await page.locator('.challenge.mystery:not([disabled])').click({ timeout: 60_000 });
   await expect(page.locator('.mystery-search input')).toBeVisible();
 }

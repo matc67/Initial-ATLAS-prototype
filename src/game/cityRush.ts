@@ -61,17 +61,12 @@ export const isExpired = (r: Rush, now: number) => r.durationMs !== null && now 
 
 // One typed guess, already looked up: `city` is the id findCity returned, or null when nothing matched.
 // A guess arriving at or after the deadline counts for nothing, even if the screen had not caught up yet.
-// `city` is what a guess names: one city, or every city of a name at once (all the Springfields, cityMatch.matchGuess).
-// The ones not found yet are added together, at the same moment; 'duplicate' when every one was found already.
-export function guessRush(r: Rush, typed: string, city: string | string[] | null, now: number): { rush: Rush; outcome: RushOutcome } {
+export function guessRush(r: Rush, typed: string, city: string | null, now: number): { rush: Rush; outcome: RushOutcome } {
   if (r.phase !== 'playing' || isExpired(r, now)) return { rush: r, outcome: 'over' };
   if (!typed.trim()) return { rush: r, outcome: 'empty' };
-  const ids = city === null ? [] : Array.isArray(city) ? city : [city];
-  if (!ids.length) return { rush: r, outcome: 'unknown' };
-  const fresh = [...new Set(ids)].filter(id => !r.found.includes(id));
-  if (!fresh.length) return { rush: r, outcome: 'duplicate' };
-  const at = elapsedMs(r, now);
-  return { rush: { ...r, found: [...r.found, ...fresh], foundAt: [...r.foundAt, ...fresh.map(() => at)] }, outcome: 'new' };
+  if (!city) return { rush: r, outcome: 'unknown' };
+  if (r.found.includes(city)) return { rush: r, outcome: 'duplicate' };
+  return { rush: { ...r, found: [...r.found, city], foundAt: [...r.foundAt, elapsedMs(r, now)] }, outcome: 'new' };
 }
 
 // Ends a run. A timed run ends at its deadline at the latest, however late the end is noticed (a tab reopened later).

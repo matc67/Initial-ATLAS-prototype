@@ -5,7 +5,6 @@ import CityRush, { noRushHandlers, type RushHandlers, type RushPhase } from './c
 import { loadActive as loadActiveRush } from './game/cityRushRecords';
 import { challengeLink, comparable as isComparable, parseChallenge, withoutChallenge, type Challenge } from './game/challengeLink';
 import { ExitConfirm } from './components/ExitConfirm';
-import { MAP_TAP, PHONE, Sheet, useSheet } from './components/Sheet';
 import { ChallengeInvite, ChallengeOutcome, InvalidChallenge, ShareSheet, type MadeCard } from './components/Challenge';
 import { renderShareCard, type GlobeShape } from './components/shareCard';
 import type { StripCell } from './game/shareCard';
@@ -143,8 +142,6 @@ export default function App() {
   // A friend's challenge from a link, until accepted or dismissed; and a link that could not be read.
   const [invite, setInvite] = useState<Challenge | null>(null);
   const [invalidLink, setInvalidLink] = useState(false);
-  // The game menu's sheet (phones): collapsed on arrival, so the globe comes first; open again after every game.
-  const [menuOpen, setMenuOpen] = useSheet(!matchMedia(PHONE).matches);
   // The share sheet of a round's or a mystery's results.
   const [sharing, setSharing] = useState(false);
   // Exit asked during a round or a mystery with progress to lose: the clock waits while the player decides.
@@ -917,27 +914,6 @@ export default function App() {
   // `playing`: a game is in progress (a round, a mystery or a City Rush). On phones and short screens the section
   // navigation, logo and zoom buttons step aside then, so the globe has the screen; each game has its own exit.
   const playing = inRound || mysteryPlaying || rushPlaying;
-  const menuShown = view === 'play' && !game && !inMystery && !inRush;
-  const inGame = !!game || inMystery || inRush;
-  const wasInGame = useRef(inGame);
-  // A tap on the globe (not a drag or a pinch) tells an open sheet to step aside.
-  const mapTap = useRef<{ x: number; y: number; t: number } | null>(null);
-  // The on-screen keyboard's height (iOS and Android browsers shrink the visual viewport, not the layout one), so a
-  // sheet with a search field can sit above it.
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
-      document.documentElement.style.setProperty('--kb', `${kb}px`);
-      // The field being typed in stays in sight inside its (now shorter) sheet.
-      const f = document.activeElement;
-      if (kb > 0 && f instanceof HTMLElement && f.closest('.sheet')) requestAnimationFrame(() => f.scrollIntoView({ block: 'nearest' }));
-    };
-    vv.addEventListener('resize', update); vv.addEventListener('scroll', update); update();
-    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update); };
-  }, []);
-  useEffect(() => { if (wasInGame.current && !inGame) setMenuOpen(true); wasInGame.current = inGame; }, [inGame]);
   // Which results are on screen; each new set opens unfolded.
   const roundDone = view === 'play' && !!game && round?.phase === 'done' && !!stats;
   const mysterySolved = inMystery && mystery!.m.phase === 'solved';
@@ -995,8 +971,7 @@ export default function App() {
   return <div className={`app${playing ? ' playing' : ''}${inRound ? ' in-round' : ''}${mysteryPlaying ? ' in-mystery' : ''}${inRush ? ' in-rush' : ''}${rushPlaying ? ' rush-playing' : ''}${rushPlaying && rushListOpen ? ' rush-list-open' : ''}${answerBar || searchBar ? ' has-answer-bar' : ''}`} onClick={uiClick}>
     <Starfield />
     <div className="atmosphere" ref={glowDiv} />
-    <div className="map" ref={mapDiv} onPointerDown={e => { mapTap.current = { x: e.clientX, y: e.clientY, t: e.timeStamp }; }}
-      onPointerUp={e => { const t = mapTap.current; mapTap.current = null; if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) < 8 && e.timeStamp - t.t < 500) window.dispatchEvent(new Event(MAP_TAP)); }} />
+    <div className="map" ref={mapDiv} />
     <div className="globe-shade" ref={shadeDiv} />
 
     <header className="topbar">
@@ -1010,8 +985,7 @@ export default function App() {
     <nav className="rail" aria-label="Sections">
       {([['explore', 'Explore', 'globe'], ['play', 'Play', 'play'], ['progress', 'Progress', 'bars']] as const).map(([v, label, icon]) =>
         <button key={v} className={view === v ? 'active' : ''} onClick={() => {
-          if (v === 'play' && view === 'play') { toGameMenu(); setMenuOpen(true); return; }
-          if (v === 'play') setMenuOpen(true);
+          if (v === 'play' && view === 'play') { toGameMenu(); return; }
           // Leaving Play closes a City Rush that is not being played, so coming back shows the menu, not its old screen.
           if (inRush && !rushPlaying) setRushStart(null);
           setView(v); setSelected(null); setSelectedLand(null); setHoverId(null);
@@ -1088,34 +1062,31 @@ export default function App() {
       landShapes={() => [...shapesRef.current.values()]}
       onHighlight={setRushHighlight} onPhase={setRushPhase} onListOpen={setRushListOpen} onExit={closeRush} />}
 
-    {/* The game menu: on phones a bottom sheet (components/Sheet.tsx), collapsed to one bar until it is wanted. */}
-    {menuShown && <Sheet open={menuOpen} onOpen={setMenuOpen} className="play-menu" label="Game menu"
-      summary={<><strong>Choose a game</strong><small>{MODE_LABEL[mode]} · {areaShort(area)} · {countrySet === '195' ? 'Classic 195' : 'All 200'}</small></>}>
-      {firstVisit && <p className="intro">A geography game on a 3D globe. Pick a way to play, choose an area at the top, and start.</p>}
-      <div className="eyebrow">{SET_LABEL[countrySet]}</div>
-      <h1>{areaTitle(area)}</h1>
-      <div className="segmented" role="radiogroup" aria-label="Game mode">
-        <button role="radio" aria-checked={mode === 'find'} className={mode === 'find' ? 'on' : ''} onClick={() => setMode('find')}>Find it</button>
-        <button role="radio" aria-checked={mode === 'name'} className={mode === 'name' ? 'on' : ''} onClick={() => setMode('name')}>Name it</button>
-        <button role="radio" aria-checked={mode === 'flag'} className={mode === 'flag' ? 'on' : ''} onClick={() => setMode('flag')}>Flags</button>
-      </div>
-      <p className="muted"><span>{MODE_HINT[mode]}</span> <span className="points-hint">{ATTEMPT_POINTS[0]} points first try, plus a bonus for 3, 5 or 10 in a row.</span></p>
-      <ChallengePicker area={areaShort(area)} loading={loading} poolSize={playIds.length}
-        sprintBest={sprintRecord} fullBest={record} onSprint={() => startRound({ kind: 'sprint' })} onFull={() => startRound()}
-        mysteryBest={mysteryRecord} mysterySize={mEntries.length} onMystery={() => startMystery()}
-        onCityRush={() => openRush()}
-        onRegions={() => { setView('explore'); setSelected(null); setSelectedLand(null); }} />
-      <div className="set-row">
-        <span>Countries</span>
-        <div className="toggle" role="radiogroup" aria-label="Countries">
-          <button role="radio" aria-checked={countrySet === '200'} className={countrySet === '200' ? 'on' : ''} onClick={() => setCountrySet('200')}>All 200</button>
-          <button role="radio" aria-checked={countrySet === '195'} className={countrySet === '195' ? 'on' : ''} onClick={() => setCountrySet('195')}>Classic 195</button>
-        </div>
-      </div>
-    </Sheet>}
-
-    {!inRound && !inMystery && !inRush && !menuShown && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : view === 'explore' && subView ? 'card panel sub' : roundDone && resultsPeek ? 'card panel peek' : 'card panel'}>
+    {!inRound && !inMystery && !inRush && <aside className={view === 'explore' && !selectedCountry && !selectedLand ? 'card panel slim' : view === 'explore' && subView ? 'card panel sub' : view === 'play' && !game ? 'card panel play-menu' : roundDone && resultsPeek ? 'card panel peek' : 'card panel'}>
       {roundDone && peekRow(<><b>{stats!.score.toLocaleString()}</b> · {scopeName(game!)}</>)}
+      {view === 'play' && !game && <>
+        {firstVisit && <p className="intro">A geography game on a 3D globe. Pick a way to play, choose an area at the top, and start.</p>}
+        <div className="eyebrow">{SET_LABEL[countrySet]}</div>
+        <h1>{areaTitle(area)}</h1>
+        <div className="segmented" role="radiogroup" aria-label="Game mode">
+          <button role="radio" aria-checked={mode === 'find'} className={mode === 'find' ? 'on' : ''} onClick={() => setMode('find')}>Find it</button>
+          <button role="radio" aria-checked={mode === 'name'} className={mode === 'name' ? 'on' : ''} onClick={() => setMode('name')}>Name it</button>
+          <button role="radio" aria-checked={mode === 'flag'} className={mode === 'flag' ? 'on' : ''} onClick={() => setMode('flag')}>Flags</button>
+        </div>
+        <p className="muted"><span>{MODE_HINT[mode]}</span> <span className="points-hint">{ATTEMPT_POINTS[0]} points first try, plus a bonus for 3, 5 or 10 in a row.</span></p>
+        <ChallengePicker area={areaShort(area)} loading={loading} poolSize={playIds.length}
+          sprintBest={sprintRecord} fullBest={record} onSprint={() => startRound({ kind: 'sprint' })} onFull={() => startRound()}
+          mysteryBest={mysteryRecord} mysterySize={mEntries.length} onMystery={() => startMystery()}
+          onCityRush={() => openRush()}
+          onRegions={() => { setView('explore'); setSelected(null); setSelectedLand(null); }} />
+        <div className="set-row">
+          <span>Countries</span>
+          <div className="toggle" role="radiogroup" aria-label="Countries">
+            <button role="radio" aria-checked={countrySet === '200'} className={countrySet === '200' ? 'on' : ''} onClick={() => setCountrySet('200')}>All 200</button>
+            <button role="radio" aria-checked={countrySet === '195'} className={countrySet === '195' ? 'on' : ''} onClick={() => setCountrySet('195')}>Classic 195</button>
+          </div>
+        </div>
+      </>}
 
       {view === 'play' && game && round?.phase === 'done' && stats && game.kind === 'sprint' && <SprintResults
         area={scopeName(game)} modeLabel={modeLabel(game)} stats={stats} answers={round.answers}
